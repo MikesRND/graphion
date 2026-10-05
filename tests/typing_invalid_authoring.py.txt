@@ -1,0 +1,15 @@
+from graphion import Array, Block, N, Out, Param, needs_inputs
+
+
+class BadLiteral(Block):
+    y: Array = Out(N * (3 / 2))  # error: operator
+
+
+class BadParam(Block):
+    ratio: float = Param(default=1.5)
+    y: Array = Out(N * ratio)  # error: operator
+
+
+needs_inputs()  # error: call-overload
+needs_inputs(None, "x")  # error: call-overload
+needs_inputs("x", None)  # error: call-overload

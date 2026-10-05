@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "profile": "python.numpy.frame",
+  "topology": "complete",
+  "blocks": [
+    {
+      "path": "root",
+      "definition": {
+        "module": "graphion.dsp.blocks.arithmetic",
+        "qualname": "Gain"
+      },
+      "execution_ownership": "opaque",
+      "phases": {
+        "output": [
+          "x"
+        ]
+      },
+      "parameters": {},
+      "controls": {
+        "gain": {
+          "kind": "literal",
+          "value": 1.0
+        }
+      },
+      "declarations": [
+        {
+          "name": "gain",
+          "kind": "Control",
+          "value_type": {
+            "kind": "named",
+            "module": "builtins",
+            "qualname": "float"
+          },
+          "dtype": null,
+          "shape": null,
+          "declared_shape": null,
+          "default": {
+            "kind": "literal",
+            "value": 1.0
+          }
+        },
+        {
+          "name": "x",
+          "kind": "In",
+          "value_type": {
+            "kind": "array"
+          },
+          "dtype": {
+            "kind": "resolved",
+            "value": "<f8"
+          },
+          "shape": [
+            {
+              "kind": "resolved",
+              "value": 2
+            },
+            {
+              "kind": "resolved",
+              "value": 4
+            }
+          ],
+          "declared_shape": [
+            {
+              "kind": "symbol",
+              "name": "C"
+            },
+            {
+              "kind": "symbol",
+              "name": "N"
+            }
+          ],
+          "default": null
+        },
+        {
+          "name": "y",
+          "kind": "Out",
+          "value_type": {
+            "kind": "array"
+          },
+          "dtype": {
+            "kind": "resolved",
+            "value": "<f8"
+          },
+          "shape": [
+            {
+              "kind": "resolved",
+              "value": 2
+            },
+            {
+              "kind": "resolved",
+              "value": 4
+            }
+          ],
+          "declared_shape": [
+            {
+              "kind": "symbol",
+              "name": "C"
+            },
+            {
+              "kind": "symbol",
+              "name": "N"
+            }
+          ],
+          "default": null
+        }
+      ],
+      "children": [],
+      "context": {
+        "rate": 1000000.0,
+        "rate_exact": {
+          "numerator": 1000000,
+          "denominator": 1
+        },
+        "n": 4,
+        "channels": 2,
+        "dtype": "<f8",
+        "xp": "numpy"
+      },
+      "storage": {
+        "x": "external_input",
+        "y": "direct_output"
+      }
+    }
+  ],
+  "connections": [],
+  "unresolved": []
+}

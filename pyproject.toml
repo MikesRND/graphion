@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graphion"
+dynamic = ["version"]
+description = "Model-based programming for DSP/ML/AI."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "MikesRND", email = "MikesRND@protonmail.com" }]
+keywords = ["Model-Based", "Signal Processing", "DSP", "Machine Learning", "Artificial Intelligence"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Signal Processing",
+    "Topic :: Scientific/Engineering :: Machine Learning",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = ["numpy>=2.0"]
+
+[project.urls]
+Homepage = "https://github.com/MikesRND/graphion"
+
+[dependency-groups]
+dev = ["matplotlib", "mypy", "PySide6", "pytest", "ruff"]
+
+[tool.setuptools.dynamic]
+version = { attr = "graphion.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["graphion", "graphion.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+graphion = ["py.typed"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib"]
+pythonpath = ["."]
+
+[tool.mypy]
+follow_imports = "normal"
+strict_optional = true
+files = ["src/graphion", "tests", "examples"]
+
+[[tool.mypy.overrides]]
+module = ["matplotlib", "matplotlib.*"]
+ignore_missing_imports = true
