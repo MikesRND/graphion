@@ -54,6 +54,8 @@ Children and connection records expose structure without granting scheduling
 ownership. A composite's process body may forward controls, run a child several
 times or skip it. Flattening that body into a graph traversal can change behavior.
 Consequently, ordinary blocks remain opaque execution units to external tools.
+The build boundary serves the charter's visible-structure principle by fixing an
+inspectable diagram independently of execution configuration.
 
 Connections are the shared authority for runtime lookup and diagrams. Memory
 aliases and observed execution traces cannot reliably describe the intended
@@ -77,17 +79,25 @@ stride condition makes supplied writable layouts checkable without promising
 acceptance of every mathematically non-overlapping arrangement. These precise
 rules live in [storage and lifetime](reference/storage-and-lifetime.md).
 
-## Local initialization, whole-tree finalization
+## Construction, build and whole-tree finalization
 
-Explicit child setup allows derived contexts and child-dependent dimensions.
-Local setup initializes child storage and State, but cannot finalize inputs that
-an ancestor may wire later. The root resolves final input bindings and validates
-the writer set before making any descendant runnable. This supports sibling
-feedback without confusing endpoint resolution with signal scheduling.
+Construction assembles a block's initial structure. Build commits the assembled
+model's topology. Setup prepares that model for execution. The constructor runs
+the author build body so a composite is a fully constructed object that parents
+and callers can compose immediately. Deferring assembly would add partially
+constructed objects without strengthening the freeze guarantee.
 
-Failed setup leaves the tree unusable. There is no transactional rollback of
-author hooks. The [lifecycle reference](reference/lifecycle.md) specifies the
-ordering and the atomicity that is required for later external-input rebinding.
+Build fixes the topology before any setup. Explicit child setup allows derived
+contexts and child-dependent dimensions. Local setup initializes child storage
+and State. The root resolves final input bindings and validates the writer set
+before making any descendant runnable. This supports sibling feedback without
+confusing endpoint resolution with signal scheduling.
+
+Build rejection is nonfatal because it runs no author hooks and allocates no
+signal or State buffers; all structural checks precede the freeze. Failed setup
+leaves the tree unusable. There is no transactional rollback of author hooks.
+The [lifecycle reference](reference/lifecycle.md) specifies the ordering and the
+atomicity that is required for later external-input rebinding.
 
 ## Inspection and conformance
 

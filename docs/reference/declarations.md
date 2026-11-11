@@ -29,8 +29,9 @@ zero-dimensional array State is not part of this Implementation Profile.
 - The generated constructor accepts Params and Controls as keyword-only
   arguments. A declaration without a default is required.
 - State and ports are not constructor arguments.
-- After assigning configuration, the constructor calls optional `build()`.
+- After assigning configuration, the constructor calls the optional author `build()` body.
   It runs once and can read Params and Controls, but there is no ctx yet.
+  Public `build()` later commits the assembled tree ([lifecycle](lifecycle.md#build)).
 - Normal blocks do not define `__init__`. An author-provided `__init__`
   is rejected; construction and framework initialization are provided
   by Block.
@@ -64,10 +65,10 @@ zero-dimensional array State is not part of this Implementation Profile.
   must not assign Controls; establish Child Controls before opening the iteration.
   Assignment to a Block with a pending iteration, or any of its descendants, raises
   `ParamError`; see [execution](execution.md#controls-and-failures).
-- Structure and interfaces depend on Params and ctx. A Control must not
-  determine children, connections or port and State dimensions, so
-  changing a Control never alters a configured interface. The framework
-  does not detect a violation.
+- Children and connections depend on fixed Params. Resolved interface dimensions and dtypes may depend on Params and context. Controls determine neither topology nor interface shape.
+  The framework does not detect a violation. If topology depends on a channel-count
+  Param, express its relationship to `ctx.channels` through declarations or validate
+  it explicitly in the author setup body; a channel-axis shape error is not guaranteed.
 
 For example, `cutoff: float = Control(default=1000.0)` remains visible to tools and
 can change at runtime. It does not become an input edge in the diagram.
@@ -138,7 +139,7 @@ at [registration](lifecycle.md#children). Names beginning with `_` are
 reserved for implementation details. The author hooks are `build`, `setup`,
 `reset`, `process`, `output` and `update`; framework-owned `__init__`,
 `run`, `run_output`, `run_update`, `bind_output`,
-`schema`, `ctx`, `child`, `connect`, `children`, `connections` and `describe` cannot be overridden. The implementation lists reserved
+`schema`, `ctx`, `child`, `connect`, `children`, `connections`, `describe` and `port_spec` cannot be overridden. The implementation lists reserved
 names explicitly. Required constructor arguments remain keyword-only, so
 an inherited default does not affect their order.
 

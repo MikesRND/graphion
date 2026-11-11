@@ -107,6 +107,26 @@ class DocumentedExampleTests(unittest.TestCase):
             self.assertIs(block.run(), result)
             np.testing.assert_array_equal(result, [[2.0, 4.0, 6.0, 8.0]])
 
+    def test_guide_build_walkthrough(self):
+        source = code("quickstart.md") + "\n" + code("guide/composing-models.md")
+        source += "\n" + code("guide/composing-models.md", "## Build, inspect, then set up")
+        with module_with(source) as example:
+            diagram = example.diagram
+            self.assertEqual(diagram["topology"], "complete")
+            self.assertEqual(diagram["schema_version"], 2)
+            for block in diagram["blocks"]:
+                self.assertIsNone(block["context"])
+                self.assertIsNone(block["storage"])
+            fields = {field["name"]: field for field in diagram["blocks"][0]["declarations"]}
+            self.assertEqual(
+                fields["x"]["shape"],
+                [{"kind": "symbol", "name": "C"}, {"kind": "symbol", "name": "N"}],
+            )
+            np.testing.assert_array_equal(example.result, [[1.0, 2.0, 3.0, 4.0]])
+            automatic = example.auto.describe()
+            self.assertEqual(automatic["topology"], "complete")
+            self.assertTrue(all(block["storage"] is not None for block in automatic["blocks"]))
+
     def test_reference_chain(self):
         source = reference("### A stateful filter") + "\n" + code("reference/examples.md", "### A connected composite")
         with module_with(source) as example:

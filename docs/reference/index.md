@@ -14,7 +14,7 @@ introduction, follow the [user guide](../guide/index.md).
 | [Python and NumPy](profile.md) | Synchronous processing, complete frames and supported operations |
 | [Declarations](declarations.md) | Fields, annotations, configuration, State and inheritance |
 | [Context and types](context-and-types.md) | Dtypes, axes, resolution and array validation |
-| [Lifecycle](lifecycle.md) | Children, setup, finalization, reset and hook ordering |
+| [Lifecycle](lifecycle.md) | Children, build, setup, finalization, reset and hook ordering |
 | [Ports and connections](ports-and-connections.md) | Endpoints, supported wiring and forwarding |
 | [Storage and lifetime](storage-and-lifetime.md) | Ownership, borrowing, supplied layouts and overlap checks |
 | [Execution](execution.md) | Invocation, manual ordering and storage reuse |

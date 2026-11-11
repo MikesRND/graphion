@@ -82,12 +82,13 @@ Every block in this Implementation Profile reports its execution ownership as
 `opaque` ([shared block model](model.md#shared-concepts)).
 
 **Completeness.** Topology is one fact for the whole described subtree.
-It is `open` until the lifecycle root's setup has succeeded: the
-children and connections recorded so far are reported. Open means completeness
-is not certified; it does not promise further mutation after local or failed setup. Successful root setup closes
-registration and wiring throughout the tree and makes the described subtree
-`complete`. Failed setup remains `open`; locally configured children in an
-unready tree are not reported as complete.
+It is `open` until the lifecycle root's **build** has succeeded: the children and
+connections recorded so far are reported. Successful root build closes registration
+and wiring throughout the tree and makes the described subtree `complete`.
+`open` means not yet certified by the current root, not necessarily editable.
+Adopting a built, unconfigured subtree into an unbuilt parent reports `open` until
+the new root builds, while that subtree's owners remain frozen. A failed setup
+after build leaves topology `complete` with `storage` set to `null`.
 Interface resolution is separate. It is reported per dtype and per
 dimension, each as a resolved value or in its declared symbolic form:
 `Sample`, `C`, `N`, a named `Axis`, or a dimension expression. `declared_shape`
@@ -144,20 +145,25 @@ file formats are outside the Graphion runtime.
 `describe()` returns the following record vocabulary, made of JSON-compatible
 plain values. Required keys below
 are always present; optionality is expressed by `null`, not missing keys.
-No extra keys are emitted in schema version 1. This is an inspection snapshot,
+No extra keys are emitted in schema version 2. This is an inspection snapshot,
 not a reconstructible input format. Unknown schema versions require a consumer
-compatibility decision; they must not silently be treated as version 1.
+compatibility decision; they must not silently be treated as version 2.
 
 ### Root record
 
 | Key | Value |
 |---|---|
-| `schema_version` | Integer `1`; identifies the serialized format, independently of the package version. |
+| `schema_version` | Integer `2`; identifies the serialized format, independently of the package version. |
 | `profile` | Implementation Profile identifier: string `python.numpy.frame`. |
 | `topology` | `open` or `complete` as defined in [the structural description](#the-structural-description). |
 | `blocks` | Block records, preorder with children in registration order. |
 | `connections` | Connection records, owners in block order and edges in recording order. |
 | `unresolved` | Unresolved records, ordered by block then declaration order. |
+
+Version history:
+
+- v1: `complete` meant root setup succeeded.
+- v2: `complete` means root build succeeded, storage reported independently.
 
 Paths are relative to the described block, named `root`. Child components are
 registration names with `~` escaped as `~0` and `/` as `~1`, joined with `/`.

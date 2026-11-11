@@ -152,7 +152,7 @@ class FinalizationTests(unittest.TestCase):
         self.assertTrue(original.flags.writeable)
         self.assertTrue(model.a.worker.worker.y.flags.writeable)
 
-    def test_late_ancestor_wiring_replaces_provisional_input_classification(self):
+    def test_build_wiring_resolves_nested_inputs_in_either_registration_order(self):
         for reverse in (False, True):
             for source_kind in ("external", "producer"):
 
@@ -165,26 +165,44 @@ class FinalizationTests(unittest.TestCase):
                         children = [("branch", self.branch), ("source", self.source)]
                         for name, child in reversed(children) if reverse else children:
                             self.child(name, child)
-
-                    def setup(self, ctx):
-                        self.branch.setup(ctx)
                         if source_kind == "external":
                             self.connect(self, "x", self.branch, "x")
-                            self.x = np.full(4, 5.0)
                         else:
                             self.connect(self.source, "y", self.branch, "x")
+
+                    def setup(self, ctx):
+                        if source_kind == "external":
+                            self.x = np.full(4, 5.0)
 
                 with self.subTest(reverse=reverse, source=source_kind):
                     model = Parent()
                     model.x = np.ones(4)
                     model.setup(context())
                     if source_kind == "external":
-                        self.assertIs(model.branch.worker.worker.x, model.x)
+                        for node in (model.branch, model.branch.worker, model.branch.worker.worker):
+                            self.assertIs(node.x, model.x)
                         np.testing.assert_array_equal(model.branch.run(), np.full(4, 10.0))
                     else:
                         view = model.source.run()
-                        self.assertIs(model.branch.worker.worker.x, view)
+                        for node in (model.branch, model.branch.worker, model.branch.worker.worker):
+                            self.assertIs(node.x, view)
                         np.testing.assert_array_equal(model.branch.run(), np.full(4, 14.0))
+
+    def test_ancestor_cannot_wire_nested_boundary_during_setup(self):
+        class Parent(Block):
+            x: Array = In(N)
+
+            def build(self):
+                self.branch = self.child("branch", Relay(target=Relay(target=Scale())))
+
+            def setup(self, ctx):
+                self.branch.setup(ctx)
+                self.connect(self, "x", self.branch, "x")
+
+        model = Parent()
+        with self.assertRaisesRegex(WiringError, "before build"):
+            model.setup(context())
+        self.assertEqual(model.connections, ())
 
     def test_each_consumer_requires_only_its_own_external_sources(self):
         class Model(Block):
@@ -235,8 +253,11 @@ class FinalizationTests(unittest.TestCase):
         root = Block()
         model = root.child("model", Relay(target=Relay(target=Scale())))
         root.connect(model, "y", model, "x")
-        with self.assertRaisesRegex(StorageError, r"root/model/worker/worker.*\.x.*own output writer.*\.y"):
-            root.setup(context())
+        for operation in (root.build, lambda: root.setup(context()), lambda: root.setup(context())):
+            with self.assertRaisesRegex(WiringError, r"root/model/worker/worker.*\.x.*own output writer.*\.y"):
+                operation()
+            self.assertFalse(root._tree.failed)
+            self.assertEqual(root.describe()["topology"], "open")
         for block in (root, model, model.worker, model.worker.worker):
             for operation in (block.run, block.reset):
                 with self.assertRaises(SetupError):

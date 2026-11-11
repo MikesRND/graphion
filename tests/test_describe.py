@@ -72,7 +72,7 @@ class DescriptionTests(unittest.TestCase):
                 "unresolved",
             },
         )
-        self.assertEqual(snapshot["schema_version"], 1)
+        self.assertEqual(snapshot["schema_version"], 2)
         self.assertEqual(snapshot["profile"], "python.numpy.frame")
         for block in snapshot["blocks"]:
             self.assertEqual(
@@ -504,7 +504,7 @@ class Child(Parent): pass
             model.setup(context())
         snapshot = model.describe()
         self.assertEqual(snapshot, model.during_setup)
-        self.assertEqual(snapshot["topology"], "open")
+        self.assertEqual(snapshot["topology"], "complete")
         record = snapshot["blocks"][0]
         self.assertIsNone(record["context"])
         self.assertIsNone(record["storage"])
@@ -525,7 +525,7 @@ class Child(Parent): pass
             model.setup(context())
         snapshot = model.describe()
         parent, child = snapshot["blocks"]
-        self.assertEqual(snapshot["topology"], "open")
+        self.assertEqual(snapshot["topology"], "complete")
         self.assertIsNone(parent["context"])
         self.assertEqual(child["context"]["n"], 3)
         self.assertIsNone(child["storage"])
@@ -537,7 +537,7 @@ class Child(Parent): pass
             ],
         )
         subtree = model.leaf.describe()
-        self.assertEqual(subtree["topology"], "open")
+        self.assertEqual(subtree["topology"], "complete")
         self.assertEqual(subtree["blocks"][0]["path"], "root")
         self.assert_plain_snapshot(snapshot)
         self.assert_plain_snapshot(subtree)
@@ -560,7 +560,7 @@ class Child(Parent): pass
         with self.assertRaises(StorageError):
             model.setup(context())
         snapshot = model.describe()
-        self.assertEqual(snapshot["topology"], "open")
+        self.assertEqual(snapshot["topology"], "complete")
         for block in snapshot["blocks"]:
             self.assertEqual(block["context"]["n"], 4)
             self.assertIsNone(block["storage"])

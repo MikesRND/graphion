@@ -66,6 +66,7 @@ _RESERVED_DECLARATION_NAMES = _FRAMEWORK_OWNED_NAMES | _AUTHOR_HOOK_NAMES
 
 @dataclass(slots=True)
 class _TreeStatus:
+    built: bool = False
     ready: bool = False
     failed: bool = False
     writers: tuple = ()
@@ -118,6 +119,17 @@ def _processing_phases(cls):
     return MappingProxyType(dependencies)
 
 
+def _wrap_build(body):
+    @wraps(body)
+    def build(self):
+        if self._in_build_hook:
+            return body(self)
+        return self._build()
+
+    setattr(build, "_graphion_lifecycle_wrapper", build)
+    return build
+
+
 def _wrap_setup(body):
     @wraps(body)
     def setup(self, ctx):
@@ -125,6 +137,7 @@ def _wrap_setup(body):
             return body(self, ctx)
         return self._setup(ctx, body)
 
+    setattr(setup, "_graphion_lifecycle_wrapper", setup)
     return setup
 
 
@@ -135,6 +148,7 @@ def _wrap_reset(body):
             return body(self)
         return self._reset(body)
 
+    setattr(reset, "_graphion_lifecycle_wrapper", reset)
     return reset
 
 
@@ -197,10 +211,16 @@ class Block:
             setattr(cls, name, field)
         cls.schema = MappingProxyType(fields)
         cls._phase_dependencies = _processing_phases(cls)
-        if "setup" in cls.__dict__:
-            cls.setup = _wrap_setup(cls.__dict__["setup"])
-        if "reset" in cls.__dict__:
-            cls.reset = _wrap_reset(cls.__dict__["reset"])
+        for name, wrap in (("build", _wrap_build), ("setup", _wrap_setup), ("reset", _wrap_reset)):
+            body = inspect.getattr_static(cls, name)
+            # Keep framework entry points and inherited wrappers. An identity
+            # marker does not mistake metadata copied by wraps() for a wrapper.
+            if (
+                body is inspect.getattr_static(Block, name)
+                or getattr(body, "_graphion_lifecycle_wrapper", None) is body
+            ):
+                continue
+            setattr(cls, name, wrap(body))
 
     def __init__(self, **configuration):
         self._values = {}
@@ -222,6 +242,7 @@ class Block:
         self._connections = ()
         self._incoming = {}
         self._ctx = None
+        self._in_build_hook = False
         self._in_setup_hook = False
         self._in_reset_hook = False
         self._initializing_reset = False
@@ -255,10 +276,37 @@ class Block:
                     default = arrays.host_copy(default, readonly=True)
                 self._state_defaults[name] = default
         self._config_locked = True
-        self.build()
+        self._in_build_hook = True
+        try:
+            self.build()
+        finally:
+            self._in_build_hook = False
 
     def build(self):
-        pass
+        if not self._in_build_hook:
+            return self._build()
+
+    def _build(self):
+        if self._parent is not None:
+            raise SetupError("a registered child is built by its lifecycle root")
+        if self._tree.built:
+            return
+        nodes = tuple(self._walk())
+        for node in nodes:
+            for name, field in node.schema.items():
+                if field.kind != "In":
+                    continue
+                source, port = node._endpoint_source(name)
+                if source.schema[port].kind == "Out" and source is node:
+                    raise WiringError(
+                        f"{node._identity()}.{name}: connected input resolves to its own output writer "
+                        f"{source._identity()}.{port}"
+                    )
+        # Commit only after every structural endpoint has been validated.
+        for node in nodes:
+            if node._phase == "new":
+                node._phase = "built"
+        self._tree.built = True
 
     @property
     def ctx(self):
@@ -314,8 +362,10 @@ class Block:
             yield from child._walk()
 
     def child(self, name, block):
-        if self._tree.failed or (self._phase != "new" and not self._in_setup_hook):
-            raise RegistrationError("register children before setup or in the parent setup body")
+        if self._tree.failed:
+            raise RegistrationError("cannot register children after setup failure; construct a new tree")
+        if self._phase != "new":
+            raise RegistrationError("register children before build")
         if not isinstance(name, str) or not name:
             raise RegistrationError("child name must be a nonempty string")
         if name in self._children or name in self.schema:
@@ -330,7 +380,7 @@ class Block:
                 raise RegistrationError(f"{name}: lifecycle registration cycle")
             ancestor = ancestor._parent
         descendants = tuple(block._walk())
-        if any(node._phase != "new" or node._tree.failed for node in descendants):
+        if any(node._phase not in ("new", "built") or node._tree.failed for node in descendants):
             raise RegistrationError(f"{name}: child must be previously unconfigured")
         # Validate before adopting the subtree, including its existing descendants.
         block._parent = self
@@ -341,8 +391,10 @@ class Block:
         return block
 
     def connect(self, source_block, source_port, destination_block, destination_port):
-        if self._tree.failed or (self._phase != "new" and not self._in_setup_hook):
-            raise WiringError("record connections before setup or in the owner setup body")
+        if self._tree.failed:
+            raise WiringError("cannot record connections after setup failure; construct a new tree")
+        if self._phase != "new":
+            raise WiringError("record connections before build")
         fields = []
         for block, name in ((source_block, source_port), (destination_block, destination_port)):
             if not isinstance(block, Block) or (block is not self and block._parent is not self):
@@ -408,11 +460,6 @@ class Block:
                     continue
                 source, port = node._endpoint_source(name)
                 if source.schema[port].kind == "Out":
-                    if source is node:
-                        raise StorageError(
-                            f"{node._identity()}.{name}: connected input aliases its own output writer "
-                            f"{source._identity()}.{port}"
-                        )
                     view = source._exports[port]
                 else:
                     key = (id(source), port)
@@ -436,8 +483,8 @@ class Block:
                     source._input_raw[port], f"{source._identity()}.{port} (external input)", writers
                 )
 
-        # All endpoint and storage checks succeeded. Replace provisional input
-        # classifications, and cache the readers of each canonical external slot.
+        # All storage checks succeeded. Complete input bindings and cache the
+        # readers of each canonical external slot.
         for node in nodes:
             node._missing_inputs.clear()
         for node, name, view in bindings:
@@ -480,7 +527,7 @@ class Block:
                 return
             raise StorageError(f"{name}: write in place; supply Out storage using bind_output before setup")
         else:
-            if self._phase == "new":
+            if self._phase in ("new", "built"):
                 raise UnavailablePortError(f"{name}: State is initialized during setup")
             self._values[name] = value
 
@@ -511,7 +558,7 @@ class Block:
         field = self.schema.get(name)
         if field is None or field.kind != "Out":
             raise StorageError(f"{name}: not an output")
-        if self._phase != "new" and not self._in_setup_hook:
+        if self._phase not in ("new", "built") and not self._in_setup_hook:
             raise StorageError(f"{name}: output storage must be supplied before allocation")
         if name in self._incoming:
             raise StorageError(f"{name}: bind storage to the direct producer, not a forwarded output")
@@ -575,10 +622,14 @@ class Block:
             return self._setup(ctx, None)
 
     def _setup(self, ctx, body):
-        if self._phase != "new" or self._tree.failed:
+        if self._phase not in ("new", "built") or self._tree.failed:
             raise SetupError("setup runs once; construct a new block after failure")
         if self._parent is not None and self._parent._phase != "setting-up":
             raise SetupError("a registered child is set up only within its parent's setup")
+        if self._parent is None:
+            self._build()
+        elif self._phase != "built":
+            raise SetupError("a registered child requires successful build of its lifecycle root")
         self._phase = "setting-up"
         try:
             if not isinstance(ctx, Ctx) or ctx.xp is not np:
@@ -623,7 +674,7 @@ class Block:
                 name: PortSpec(*spec) for name, spec in self._specs.items() if self.schema[name].kind in ("In", "Out")
             }
             for child in self._children.values():
-                if child._phase == "new":
+                if child._phase == "built":
                     child.setup(ctx)
             self._configure_connections()
             exports = tuple(self._exports[name] for name, field in self.schema.items() if field.kind == "Out")

@@ -19,14 +19,14 @@ Supported in this release:
 
 - Declarative blocks with Params, Controls, State and In/Out ports, named axes and
   dtypes, and generated constructors that static type checkers understand.
-- Explicit `setup()`, `reset()` and `run()` with no hidden scheduler.
+- Explicit `build()`, `setup()`, `reset()` and `run()` with no hidden scheduler.
 - Atomic `process` or split `output`/`update` hooks using Input attributes;
   `@needs_inputs(...)` declares narrowed Output dependencies, and
   separate `run_output()` and `run_update()` calls support stateful feedback.
 - Framework-allocated, reused output and State buffers; read-only borrowed
   results; caller-supplied outputs with overlap validation.
 - Hierarchical composition: child blocks, connections with fan-out, input and
-  output forwarding, and tree-wide storage validation at setup.
+  output forwarding, topology validation at build and tree-wide storage validation at setup.
 - Exact rational sample rates through rate-changing stages.
 - `describe()` plain-data structural descriptions.
 
