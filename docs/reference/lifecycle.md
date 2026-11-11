@@ -3,7 +3,11 @@
 [Programming reference](index.md)
 
 <a id="construction-children-setup-and-reset"></a>
-## Construction, children, setup and reset
+## Construction, children, build, setup and reset
+
+- **Construction assembles a block's initial structure.** The constructor runs the author build body.
+- **Build commits the assembled model's topology.** The public operation validates and freezes the tree.
+- **Setup prepares that model for execution.** It builds an unbuilt root first.
 
 <a id="children"></a>
 
@@ -28,10 +32,50 @@ a second lifecycle parent and registration cycles raise `RegistrationError` at
 registration. This checks recursive setup/reset bookkeeping, not signal-flow
 feedback.
 
-Registration is allowed before setup or in the parent's setup body.
-It closes when the parent finishes setup. Prefer `build()` where the
-structure does not depend on ctx. Arbitrary other Python references
+Registration and wiring happen in the author `build()` body, which the constructor
+runs, or by a caller on an unbuilt tree. They close when the lifecycle root builds;
+they are not allowed in author setup bodies. Arbitrary other Python references
 between blocks are allowed and carry no lifecycle meaning.
+
+Built, unconfigured subtrees may be registered under an unbuilt parent. Their
+owners stay frozen, while the parent may connect their boundary ports through
+parent-owned connections. Adoption shares the new parent's tree status, so the
+subtree reports open topology until its new lifecycle root builds and validates
+the entire tree again. Configured or failed descendants cannot be adopted.
+
+<a id="build"></a>
+
+### Build
+
+Public `build()` commits the assembled tree without a context:
+
+1. Require the lifecycle root; calling `build()` on a registered child raises
+   `SetupError`. Repeated root `build()` calls are no-ops after a successful build,
+   including after a later setup failure.
+2. Walk the entire hierarchy and resolve each input's structural endpoint through
+   boundary forwarding. An input resolving to its own block's output writer raises
+   `WiringError`. Signal cycles between distinct writers remain valid.
+3. Only after every check succeeds, freeze every owner still in phase `new` to
+   phase `built`, then mark the shared tree status built.
+
+No author body runs. Build does not resolve interface dimensions or dtypes,
+allocate signal or State buffers, or initialize execution. Endpoint results are
+discarded; setup resolves them again when arrays exist. Build creates ordinary
+temporary Python objects, such as the hierarchy traversal tuple.
+
+Build is atomic and rejection is nonfatal. Validation failure leaves all prior
+topology and lifecycle state unchanged: no additional owner becomes frozen,
+previously built descendants remain frozen, and the tree is not marked failed.
+The root cannot pass setup until build passes. This also applies when an enclosing
+connection introduces a self-alias through a previously built subtree's boundary.
+Rejection preserves previously recorded connections and does not guarantee that
+erroneous wiring can be repaired. Corrections requiring removal or replacement of
+a recorded connection require reconstructing the affected model.
+
+`setup()` on an unbuilt root builds first. A registered child never builds the
+tree itself; its root must already have built it. A successful build makes topology
+`complete`; `open` means the current root has not certified it, as defined in
+[introspection](introspection.md#the-structural-description).
 
 <a id="setup"></a>
 
@@ -39,12 +83,12 @@ between blocks are allowed and carry no lifecycle meaning.
 
 `setup(ctx)` is a framework operation around an optional author body:
 
-1. Validate the supported namespace, store ctx and enter setup. A second
-   setup attempt raises. A registered child is configured only within its
-   parent's setup; only the lifecycle root performs tree finalization.
+1. Build the tree if this is an unbuilt root; rejection here preserves prior
+   state. Then enter setup, validate the supported namespace and store ctx. A
+   second setup attempt raises. A registered child must be built and is configured
+   only within its parent's setup; only the lifecycle root performs tree finalization.
 2. Run the author's `setup(ctx)` body. It may compute coefficients and
-   axis sizes, register/wire children, and explicitly set up children
-   with derived contexts.
+   axis sizes, and explicitly set up children with derived contexts.
 3. Resolve this block's declarations. Allocate its array State and each
    directly produced Out that has no supplied buffer. Validate supplied
    buffers instead of allocating replacements. Forwarded Outs allocate
@@ -54,11 +98,11 @@ between blocks are allowed and carry no lifecycle meaning.
    their parent's setup, not independently beforehand.
 5. Validate this owner's connections whose specs are available. Create direct
    producer export views; resolve local forwarded output exports and cache this
-   block's result object. Leave input bindings dependent on ancestor or sibling
-   wiring provisional until root finalization (see [whole-tree finalization](#whole-tree-finalization)).
+   block's result object. Bindings that depend on producers elsewhere in the tree
+   are completed at root finalization (see [whole-tree finalization](#whole-tree-finalization)).
 6. Restore this block's State defaults, then run its author `reset()` body,
    with children already initialized. Do not reset those children a second time.
-7. Finish local configuration and close this block's registration/wiring.
+7. Finish local configuration.
    An explicitly configured child can supply configured properties and resolved
    [port specs](introspection.md#resolved-port-specs) to its parent,
    but public processing remains unavailable until the whole tree is ready.
@@ -89,9 +133,10 @@ preserving the underlying cause. Unrelated exceptions raised by author axis
 properties propagate unchanged rather than being relabeled as missing child setup.
 There is no lazy allocation or setup-time execution of the numerical graph.
 
-Setup runs once. A setup failure makes that constructed tree unusable;
-fix the configuration and construct a new tree. Recovery from partial
-setup is unsupported.
+Setup runs once. Automatic build rejection occurs before setup begins and preserves
+the prior state. Once setup begins, failure makes the tree unusable; the topology
+remains complete. Setup has no rollback; fix the configuration and construct a new
+tree. Recovery from partial setup is unsupported.
 
 <a id="reset"></a>
 
@@ -119,9 +164,9 @@ Ordinary scratch is left to the author's hook. The writer list is unchanged.
 
 Calling `child.reset()` directly resets only that child's subtree once the
 tree is ready. Parent and sibling state remain unchanged. Use the root's
-reset for a complete model restart. Registering an already-built subtree
-must give all its descendants the same root readiness state. Readiness
-storage and propagation are private implementation details.
+reset for a complete model restart. Adopted subtrees share their lifecycle root's
+readiness state; see [children](#children). Readiness storage and propagation are
+private implementation details.
 
 A retained result requires an earlier explicit copy. Reset is not a
 snapshot operation and provides no promise about the data in borrowed
@@ -143,26 +188,27 @@ state if applicable, remains the author's reset responsibility.
 ### Method wrapping and inheritance
 
 The author hooks are named `build`, `setup`, `reset`, `process`, `output` and `update`.
-`__init_subclass__` collects declarations and wraps the setup/reset hooks.
-`super().setup(ctx)` and `super().reset()` run base author bodies only;
-framework steps occur once per outer lifecycle call. The guards must be
-separate for setup and reset and must unwind on exceptions.
+`__init_subclass__` collects declarations and wraps the effective build/setup/reset
+hooks resolved through the method resolution order, including hooks inherited from
+non-Block mixins. Inherited framework wrappers are reused.
+Inside author hooks, `super().build()`, `super().setup(ctx)` and `super().reset()`
+run base author bodies only; framework steps occur once per outer lifecycle call.
+The guards must be separate for build, setup and reset and must unwind on exceptions.
 Setup invokes its final reset body under the reset-body guard too, so a
 `super().reset()` there cannot trigger another recursive framework reset.
 
-The generated constructor invokes the most-derived build body. A derived
-build body can call `super().build()`. Processing hooks are ordinary author methods; callers use the framework
+The constructor runs the most-derived build body under the build-hook guard;
+public `build()` performs the framework operation and never re-runs author bodies.
+Processing hooks are ordinary author methods; callers use the framework
 [entry points](execution.md), which check readiness and sequence.
 
 <a id="whole-tree-finalization"></a>
 
 ## Whole-tree finalization
 
-Locally configured children remain part of an unready tree.
-An ancestor may still connect a child's boundary input during that ancestor's
-setup. Root finalization resolves input forwarding to canonical external slots
-or direct producer exports only after all local setup and ancestor wiring finish.
-It must replace any provisional disconnected-input classification. Unbound
+Locally configured children remain part of an unready tree. Root finalization
+resolves input forwarding to canonical external slots or direct producer exports
+after all local setup finishes, using the topology fixed by build. Unbound
 canonical external slots remain legal at setup and required before a consuming
 Phase. A consumer checks the slots feeding that Phase's dependencies; it does not
 require unused siblings' external inputs to be bound merely to run that consumer.
@@ -171,8 +217,7 @@ Building the final input bindings must not depend on sibling registration order.
 A signal cycle with distinct writers is valid: endpoint resolution stops at
 producer output storage and does not recursively follow that producer's inputs.
 Output forwarding itself travels upward through the hierarchy and has no signal
-cycle. Late ancestor wiring can change a child's input source, not whether that
-child's own output was allocated or forwarded.
+cycle.
 
 Author setup/reset hooks may initialize their own State and inspect
 locally initialized child properties. They must not rely on connected input values

@@ -33,6 +33,30 @@ The `process()` body calls `a` before `b`, so `b` reads the result that `a` just
 produced. Calling `setup(ctx)` on the composite configures both children with
 the same context. The composite's output shares `b`'s output storage.
 
+## Build, inspect, then set up
+
+The constructor already ran the `TwoGains.build` author body, so its children and
+wiring exist immediately. Calling `model.build()` commits the assembled tree and
+runs no author body. A caller may also register children or record connections on
+an unbuilt tree before calling `build()`; see the [build lifecycle](../reference/lifecycle.md#build).
+
+```python
+model = TwoGains()  # the constructor ran build(): children and wiring exist
+model.build()  # validate and fix the diagram; no context needed
+diagram = model.describe()  # topology "complete"; shapes symbolic; storage None
+
+model.setup(Ctx(rate=8, n=4, channels=1))  # resolve interfaces, allocate, initialize
+model.x = np.array([[2.0, 4.0, 6.0, 8.0]])
+result = model.run()  # [[1., 2., 3., 4.]]
+
+auto = TwoGains()
+auto.setup(Ctx(rate=8, n=4, channels=1))  # setup builds an unbuilt root first
+```
+
+`diagram` shows complete topology alongside unresolved interface dimensions and
+dtypes, with `storage: null`. A setup failure after build leaves the diagram's
+topology complete; storage is reported only after successful root setup.
+
 Details: [ports](../reference/ports-and-connections.md),
 [execution](../reference/execution.md).
 Next: [manage data](managing-data.md).

@@ -219,9 +219,10 @@ def describe(block):
 
     visit(block, "root")
     paths = {id(node): path for node, path in nodes}
-    complete = block._tree.ready
+    complete = block._tree.built
+    ready = block._tree.ready
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "profile": "python.numpy.frame",
         "topology": "complete" if complete else "open",
         "blocks": [],
@@ -233,7 +234,7 @@ def describe(block):
         result["unresolved"].append({"path": path, "declaration": declaration, "fact": fact, "reason": reason})
 
     if not complete:
-        unresolved("root", None, "topology", "Lifecycle root setup has not succeeded.")
+        unresolved("root", None, "topology", "Lifecycle root build has not succeeded.")
     for node, path in nodes:
         declarations = [_declaration(node, field) for field in node.schema.values()]
         cls = type(node)
@@ -252,12 +253,12 @@ def describe(block):
                 "declarations": declarations,
                 "children": [paths[id(child)] for child in node._children.values()],
                 "context": _context(node) if node._local_setup_complete else None,
-                "storage": _storage(node) if complete else None,
+                "storage": _storage(node) if ready else None,
             }
         )
         if not node._local_setup_complete:
             unresolved(path, None, "context", "Local setup has not succeeded.")
-        if not complete:
+        if not ready:
             unresolved(path, None, "storage", "Lifecycle root setup has not succeeded.")
         for declaration in declarations:
             name = declaration["name"]

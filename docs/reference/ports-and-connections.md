@@ -54,11 +54,10 @@ A direct input-to-output pass-through is an ordinary block that calls
 `np.copyto(self.y, self.x, casting="no")` in `output(self)`. It writes its own output buffer
 without allocating another signal array.
 
-Connections may be added before setup or in the author `setup()` body. They
-refer to port declarations, so no arrays or configured children are
-needed when recording them. Their resolved shapes and dtypes are checked
-after setup. Once the containing owner's setup succeeds, its connections
-are fixed. A child may already be configured when its owner wires it.
+Connections are recorded before the lifecycle root builds and are fixed by
+[build](lifecycle.md#build). They refer to port declarations, so no arrays or
+configured children are needed when recording them. Their resolved shapes and
+dtypes are checked during setup.
 
 An external input value and a connection cannot coexist at one destination;
 adding a connection to a supplied input raises `WiringError` instead of ignoring

@@ -12,9 +12,9 @@ All framework errors derive from `BlockError`:
 |---|---|
 | `DeclarationError` | Invalid or conflicting declarations, reserved names, unsupported author constructor, missing/unresolved value annotations, invalid field arguments, invalid processing signatures, dependency decorators or mixed forms, or invalid array-configuration defaults. |
 | `ParamError` | Missing or unknown construction arguments, invalid array-configuration values, reassignment of a Param, or assignment to a frozen Control. |
-| `SetupError` | Invalid ctx/domain configuration or unsupported namespace, unavailable ctx or attempted ctx reassignment, unresolved child-dependent axis, repeated/failed setup, or public run/reset before the tree is ready. |
-| `RegistrationError` | Invalid, duplicate or declaration-conflicting child names, an already configured child, a second lifecycle parent, a registration cycle, or late registration. |
-| `WiringError` | Invalid or unregistered endpoints, duplicate/conflicting sources, late wiring, or assignment to a connected destination. |
+| `SetupError` | Invalid ctx/domain configuration or unsupported namespace, unavailable ctx or attempted ctx reassignment, unresolved child-dependent axis, build of a registered child, repeated/failed setup, or public run/reset before the tree is ready. |
+| `RegistrationError` | Invalid, duplicate or declaration-conflicting child names, an already configured child, a second lifecycle parent, a registration cycle, or late registration after build. |
+| `WiringError` | Invalid or unregistered endpoints, duplicate/conflicting sources, assignment to a connected destination, late wiring after build, or an input resolving to its own block's output. |
 | `StorageError` | Attempted storage replacement, invalid output binding, non-writable or unproven writable storage, rejected supplied-output layout, prohibited overlap, or exhaustion of the overlap-check work limit. |
 | `UnavailablePortError` | A required external Input is unassigned, or a declared array has not yet been allocated. |
 | `ExecutionError` | Invalid Phase sequence or entry point, missing processing hooks, non-`None` hook return, or processing while Reset is required. |

@@ -16,6 +16,7 @@ from graphion import (
     SetupError,
     State,
     UnavailablePortError,
+    WiringError,
 )
 from graphion.dsp.blocks import Gain
 
@@ -31,8 +32,6 @@ class HierarchyTests(unittest.TestCase):
 
             def build(self):
                 self.first = self.child("first /~", self.supplied)
-
-            def setup(self, ctx):
                 self.last = self.child("last", Block())
 
         supplied = Block()
@@ -48,6 +47,16 @@ class HierarchyTests(unittest.TestCase):
         self.assertIs(parent.children, view)
         self.assertEqual(list(view), ["first /~", "last"])
         self.assertIs(parent.last.ctx, parent.ctx)
+
+    def test_registration_in_setup_body_is_rejected(self):
+        class Parent(Block):
+            def setup(self, ctx):
+                self.child("late", Block())
+
+        parent = Parent()
+        with self.assertRaisesRegex(RegistrationError, "before build"):
+            parent.setup(context())
+        self.assertEqual(dict(parent.children), {})
 
     def test_invalid_registration_is_atomic(self):
         class Parent(Block):
@@ -150,7 +159,7 @@ class HierarchyTests(unittest.TestCase):
         self.assertEqual(events, [("first", "reset", 1), ("second", "reset", 1), ("parent", "reset", 1, 1)])
         self.assertEqual(parent.count, 1)
 
-    def test_registration_closes_after_local_setup_and_is_forbidden_in_reset(self):
+    def test_registration_remains_closed_after_local_setup_and_in_reset(self):
         test = self
         rejected = []
 
@@ -412,8 +421,10 @@ class HierarchyTests(unittest.TestCase):
                 for operation in (node.run, node.reset, lambda: node.setup(context())):
                     with self.assertRaises(SetupError):
                         operation()
-                with self.assertRaises(RegistrationError):
+                with self.assertRaisesRegex(RegistrationError, "after setup failure; construct a new tree"):
                     node.child("new", Block())
+                with self.assertRaisesRegex(WiringError, "after setup failure; construct a new tree"):
+                    node.connect(node, "x", node, "x")
 
     def test_initial_reset_failure_keeps_already_configured_children_unready(self):
         error = RuntimeError("initial reset failure")

@@ -159,16 +159,16 @@ class ConnectionTests(unittest.TestCase):
             self.assertIs(consumer.x, output)
             np.testing.assert_array_equal(consumer.run(), np.full(4, 15.0))
 
-    def test_parent_can_wire_explicitly_configured_children(self):
+    def test_parent_wires_children_before_explicit_setup(self):
         class Parent(Block):
             def build(self):
                 self.consumer = self.child("consumer", Scale(gain=3.0))
                 self.source = self.child("source", Source(value=2.0))
+                self.connect(self.source, "y", self.consumer, "x")
 
             def setup(self, ctx):
                 self.consumer.setup(ctx)
                 self.source.setup(ctx)
-                self.connect(self.source, "y", self.consumer, "x")
 
         parent = Parent()
         parent.setup(context())
@@ -176,29 +176,36 @@ class ConnectionTests(unittest.TestCase):
         self.assertIs(parent.consumer.x, export)
         np.testing.assert_array_equal(parent.consumer.run(), np.full(4, 6.0))
 
-    def test_external_input_conflict_preserves_original_binding(self):
-        for configured in (False, True):
-            source_array = np.arange(4.0)
-            test = self
+    def test_parent_cannot_wire_explicitly_configured_children_in_setup(self):
+        class Parent(Block):
+            def build(self):
+                self.consumer = self.child("consumer", Scale())
+                self.source = self.child("source", Source())
 
-            class Parent(Block):
-                def build(self):
-                    self.source = self.child("source", Source())
-                    self.consumer = self.child("consumer", Scale())
-                    self.consumer.x = source_array
+            def setup(self, ctx):
+                self.consumer.setup(ctx)
+                self.source.setup(ctx)
+                self.connect(self.source, "y", self.consumer, "x")
 
-                def setup(self, ctx):
-                    if configured:
-                        self.consumer.setup(ctx)
-                    before = self.consumer.x
-                    with test.assertRaises(WiringError):
-                        self.connect(self.source, "y", self.consumer, "x")
-                    test.assertIs(self.consumer.x, before)
-
-            parent = Parent()
+        parent = Parent()
+        with self.assertRaisesRegex(WiringError, "before build"):
             parent.setup(context())
-            self.assertEqual(parent.connections, ())
-            np.testing.assert_array_equal(parent.consumer.run(), source_array * 2)
+        self.assertEqual(parent.connections, ())
+
+    def test_external_input_conflict_preserves_original_binding(self):
+        parent = Block()
+        source = parent.child("source", Source())
+        consumer = parent.child("consumer", Scale())
+        source_array = np.arange(4.0)
+        consumer.x = source_array
+        before = consumer.x
+        with self.assertRaisesRegex(WiringError, "already has an external input"):
+            parent.connect(source, "y", consumer, "x")
+        self.assertIs(consumer.x, before)
+        self.assertEqual(parent.connections, ())
+        parent.setup(context())
+        self.assertIs(consumer.x, before)
+        np.testing.assert_array_equal(consumer.run(), source_array * 2)
 
     def test_connected_input_assignment_is_rejected_before_and_after_setup(self):
         parent = Boundary()
@@ -398,12 +405,17 @@ class ConnectionTests(unittest.TestCase):
             self.assertTrue(np.shares_memory(a.x, b.y))
             self.assertTrue(np.shares_memory(b.x, a.y))
 
-    def test_direct_self_alias_is_rejected_during_resolution(self):
+    def test_direct_self_alias_is_rejected_by_build_without_poisoning_tree(self):
         parent = Block()
         worker = parent.child("worker", Scale())
         parent.connect(worker, "y", worker, "x")
-        self.assertEqual(len(parent.connections), 1)
-        with self.assertRaisesRegex(StorageError, "own output writer"):
-            parent.setup(context())
-        with self.assertRaises(SetupError):
-            worker.run()
+        connections = parent.connections
+        self.assertEqual(len(connections), 1)
+        for operation in (parent.build, lambda: parent.setup(context())):
+            with self.assertRaisesRegex(WiringError, "own output writer"):
+                operation()
+            self.assertEqual(parent.describe()["topology"], "open")
+            self.assertIs(parent.connections, connections)
+            self.assertFalse(parent._tree.failed)
+            with self.assertRaisesRegex(SetupError, "requires successful setup"):
+                worker.run()

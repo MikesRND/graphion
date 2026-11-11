@@ -65,8 +65,8 @@ amp.bind_output("y", destination)
 amp.setup(ctx)
 ```
 
-`bind_output(name, array)` is allowed before setup or in that block's
-author setup body. It supplies storage, not initial signal values. The
+`bind_output(name, array)` is allowed before setup, including after build, or in
+that block's author setup body. It supplies storage, not initial signal values. The
 framework checks exact shape, dtype, writability and the [supplied-output layout condition](#supplied-output-layouts) after specs resolve,
 then uses the supplied buffer without allocating another output array.
 
@@ -104,12 +104,11 @@ At this finalization point:
   only its own declaration slot. Pairs of freshly framework-allocated
   buffers need no overlap check against each other.
 - Check every external input already supplied, including those assigned
-  before setup or inside setup bodies, against the complete writer list.
+  before setup (including after build) or inside setup bodies, against the complete writer list.
   Inputs without a value remain allowed until processing.
-- A connected input must not resolve to an output written by that same
-  consuming block. Raise `StorageError` for that prohibited input/output alias
-  during endpoint resolution. Connections between different producers remain
-  valid; this is not a search for signal-flow cycles.
+
+Structural self-aliases are rejected earlier by [build](lifecycle.md#build) with
+`WiringError`. Actual buffer overlap remains a `StorageError` during storage validation.
 
 After successful setup, assigning a different array object to any external
 input checks it against the same whole-tree writer list, before changing
