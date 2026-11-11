@@ -140,8 +140,10 @@ reserved for implementation details. The author hooks are `build`, `setup`,
 `reset`, `process`, `output` and `update`; framework-owned `__init__`,
 `run`, `run_output`, `run_update`, `bind_output`,
 `schema`, `ctx`, `child`, `connect`, `children`, `connections`, `describe` and `port_spec` cannot be overridden. The implementation lists reserved
-names explicitly. Required constructor arguments remain keyword-only, so
-an inherited default does not affect their order.
+names explicitly. Non-Block classes in the inheritance hierarchy, excluding
+`object`, must not define these framework-owned names, even when an earlier class
+in the method resolution order would hide them. Required constructor arguments remain keyword-only, so an
+inherited default does not affect their order.
 
 Multiple inheritance of Block subclasses is unsupported.
 

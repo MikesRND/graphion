@@ -5,7 +5,7 @@ from functools import wraps
 
 import numpy as np
 
-from graphion import Array, Block, N, Out, SetupError, State
+from graphion import Array, Block, DeclarationError, N, Out, Param, SetupError, State
 from tests.test_connections import context
 
 
@@ -212,3 +212,112 @@ class LifecycleMixinTests(unittest.TestCase):
         model.reset()
         self.assertEqual(model.count, 2)
         self.assertEqual(events, ["base reset", "derived reset"])
+
+    def test_framework_owned_names_are_rejected_in_mixins_in_either_mro_order(self):
+        names = (
+            "__init__",
+            "run",
+            "run_output",
+            "run_update",
+            "bind_output",
+            "schema",
+            "ctx",
+            "child",
+            "connect",
+            "children",
+            "connections",
+            "describe",
+            "port_spec",
+        )
+        for name in names:
+            mixin = type("ProtectedMixin", (), {name: lambda self: None})
+            inherited = type("InheritedMixin", (mixin,), {})
+            for candidate in (mixin, inherited):
+                for bases in ((candidate, Block), (Block, candidate)):
+                    with self.subTest(name=name, bases=bases):
+                        with self.assertRaisesRegex(DeclarationError, f"ProtectedMixin.*framework-owned.*{name}"):
+                            type("Invalid", bases, {})
+
+    def test_protected_mixin_descriptors_are_rejected_without_evaluation(self):
+        class Descriptor:
+            def __get__(self, instance, owner=None):
+                raise AssertionError("protected descriptor was evaluated")
+
+        for name in ("schema", "ctx", "children"):
+            mixin = type("ProtectedMixin", (), {name: Descriptor()})
+            for bases in ((mixin, Block), (Block, mixin)):
+                with self.subTest(name=name, bases=bases):
+                    with self.assertRaisesRegex(DeclarationError, f"framework-owned.*{name}"):
+                        type("Invalid", bases, {})
+
+    def test_generated_schemas_remain_valid_through_multiple_block_generations(self):
+        class Helper:
+            def label(self):
+                return "helper"
+
+        class Parent(Helper, Block):
+            amount: int = Param(default=1)
+            y: Array = Out(N)
+
+        class Child(Parent):
+            amount: int = Param(default=2)
+
+        class Grandchild(Child):
+            count: int = State(default=3)
+
+        self.assertEqual(list(Parent.schema), ["amount", "y"])
+        self.assertEqual(list(Child.schema), ["amount", "y"])
+        self.assertEqual(list(Grandchild.schema), ["amount", "y", "count"])
+        self.assertIsNot(Child.schema, Parent.schema)
+        self.assertIsNot(Grandchild.schema, Child.schema)
+        model = Grandchild()
+        self.assertEqual(model.label(), "helper")
+        model.build()
+        model.setup(context())
+        self.assertEqual(model.amount, 2)
+        self.assertEqual(model.count, 3)
+        self.assertEqual(model.y.shape, (4,))
+
+    def test_none_setup_and_reset_disable_author_bodies_without_disabling_framework(self):
+        events = []
+
+        class Base(Block):
+            y: Array = Out(N)
+            count: int = State(default=3)
+
+            def setup(self, ctx):
+                events.append("setup")
+
+            def reset(self):
+                events.append("reset")
+                self.count += 1
+
+        for name in ("setup", "reset"):
+            mixin = type("DisabledHookMixin", (), {name: None})
+            disabled_classes = (
+                type("Disabled", (Base,), {name: None}),
+                type("DisabledViaMixin", (mixin, Base), {}),
+            )
+            for disabled in disabled_classes:
+                inherited = type("Inherited", (disabled,), {})
+                for cls in (disabled, inherited):
+                    with self.subTest(hook=name, cls=cls):
+                        events.clear()
+                        model = cls()
+                        with self.assertRaises(SetupError):
+                            model.reset()
+                        model.setup(context())
+                        self.assertEqual(events, ["reset"] if name == "setup" else ["setup"])
+                        self.assertEqual(model.count, 4 if name == "setup" else 3)
+                        self.assertEqual(model.y.shape, (4,))
+                        self.assertEqual(model.describe()["topology"], "complete")
+                        self.assertIsNotNone(model.describe()["blocks"][0]["storage"])
+                        events.clear()
+                        model.count = 90
+                        output = model.y
+                        model.reset()
+                        self.assertEqual(events, ["reset"] if name == "setup" else [])
+                        self.assertEqual(model.count, 4 if name == "setup" else 3)
+                        self.assertIs(model.y, output)
+                        with self.assertRaises(SetupError):
+                            model.setup(context())

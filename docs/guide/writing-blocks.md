@@ -29,7 +29,8 @@ class FrameDelay(Block):
         np.copyto(self.held, self.x, casting="no")
 ```
 
-`model.build()` validates and fixes the diagram without a context; `setup(ctx)` does this automatically.
+Calling `build()` on a block instance validates and freezes its diagram without a
+context; `setup(ctx)` performs this step automatically.
 
 Each `run()` returns the previous iteration's Input, beginning with zeros.
 For feedback, call `run_output()` before its Input is available, then

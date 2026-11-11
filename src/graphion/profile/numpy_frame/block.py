@@ -165,6 +165,16 @@ class Block:
 
     def __init_subclass__(cls):
         super().__init_subclass__()
+        # Check mixins before declaration processing reads inherited schemas.
+        for base in cls.__mro__[1:]:
+            if base is object or issubclass(base, Block):
+                continue
+            overridden = _FRAMEWORK_OWNED_NAMES.intersection(base.__dict__)
+            if overridden:
+                raise DeclarationError(
+                    f"{cls.__qualname__}: non-Block mixin {base.__qualname__} defines "
+                    f"framework-owned names: {', '.join(sorted(overridden))}"
+                )
         declarations = {name: value for name, value in cls.__dict__.items() if isinstance(value, _Declaration)}
         parameters = _declarations.dimension_bindings(cls, declarations)
         for name in declarations:
@@ -215,9 +225,8 @@ class Block:
             body = inspect.getattr_static(cls, name)
             # Keep framework entry points and inherited wrappers. An identity
             # marker does not mistake metadata copied by wraps() for a wrapper.
-            if (
-                body is inspect.getattr_static(Block, name)
-                or getattr(body, "_graphion_lifecycle_wrapper", None) is body
+            if body is inspect.getattr_static(Block, name) or (
+                body is not None and getattr(body, "_graphion_lifecycle_wrapper", None) is body
             ):
                 continue
             setattr(cls, name, wrap(body))
