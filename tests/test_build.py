@@ -29,6 +29,12 @@ from tests.test_finalization import Relay
 
 
 class BuildTests(unittest.TestCase):
+    def assertFrozen(self, node):
+        with self.assertRaisesRegex(RegistrationError, "before build"):
+            node.child("late", Block())
+        with self.assertRaisesRegex(WiringError, "before build"):
+            node.connect(node, "x", node, "x")
+
     def test_constructor_runs_most_derived_author_body_once_with_super(self):
         events = []
 
@@ -169,10 +175,7 @@ class BuildTests(unittest.TestCase):
         leaf = branch.child("leaf", Node())
         model.build()
         for node in (model, branch, leaf):
-            with self.assertRaisesRegex(RegistrationError, "before build"):
-                node.child("late", Block())
-            with self.assertRaisesRegex(WiringError, "before build"):
-                node.connect(node, "x", node, "x")
+            self.assertFrozen(node)
             with self.assertRaises(UnavailablePortError):
                 node.count = 1
             node.x = np.arange(4.0)
@@ -202,10 +205,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual((model._phase, sibling._phase), ("new", "new"))
             for node in subtree._walk():
                 self.assertEqual(node._phase, "built")
-                with self.assertRaisesRegex(RegistrationError, "before build"):
-                    node.child("late", Block())
-                with self.assertRaisesRegex(WiringError, "before build"):
-                    node.connect(node, "x", node, "x")
+                self.assertFrozen(node)
         model.child("extra", Block())
         sibling.child("extra", Block())
         model.connect(model, "x", sibling, "x")

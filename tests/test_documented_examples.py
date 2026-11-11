@@ -6,6 +6,7 @@ import numpy as np
 
 from graphion import Ctx, SetupError
 from tests.test_declarations import module_with
+from tests.test_describe import declarations
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 
@@ -117,9 +118,8 @@ class DocumentedExampleTests(unittest.TestCase):
             for block in diagram["blocks"]:
                 self.assertIsNone(block["context"])
                 self.assertIsNone(block["storage"])
-            fields = {field["name"]: field for field in diagram["blocks"][0]["declarations"]}
             self.assertEqual(
-                fields["x"]["shape"],
+                declarations(diagram["blocks"][0])["x"]["shape"],
                 [{"kind": "symbol", "name": "C"}, {"kind": "symbol", "name": "N"}],
             )
             np.testing.assert_array_equal(example.result, [[1.0, 2.0, 3.0, 4.0]])
