@@ -61,7 +61,7 @@ Public `build()` commits the assembled tree without a context:
 No author body runs. Build does not resolve interface dimensions or dtypes,
 allocate signal or State buffers, or initialize execution. Endpoint results are
 discarded; setup resolves them again when arrays exist. Build creates ordinary
-temporary Python objects, such as the hierarchy traversal tuple.
+temporary Python objects, such as the hierarchy traversal generators.
 
 Build is atomic and rejection is nonfatal. Validation failure leaves all prior
 topology and lifecycle state unchanged: no additional owner becomes frozen,

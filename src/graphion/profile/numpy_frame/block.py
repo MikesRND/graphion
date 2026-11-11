@@ -126,7 +126,6 @@ def _wrap_build(body):
             return body(self)
         return self._build()
 
-    setattr(build, "_graphion_lifecycle_wrapper", build)
     return build
 
 
@@ -137,7 +136,6 @@ def _wrap_setup(body):
             return body(self, ctx)
         return self._setup(ctx, body)
 
-    setattr(setup, "_graphion_lifecycle_wrapper", setup)
     return setup
 
 
@@ -148,7 +146,6 @@ def _wrap_reset(body):
             return body(self)
         return self._reset(body)
 
-    setattr(reset, "_graphion_lifecycle_wrapper", reset)
     return reset
 
 
@@ -222,14 +219,11 @@ class Block:
         cls.schema = MappingProxyType(fields)
         cls._phase_dependencies = _processing_phases(cls)
         for name, wrap in (("build", _wrap_build), ("setup", _wrap_setup), ("reset", _wrap_reset)):
-            body = inspect.getattr_static(cls, name)
-            # Keep framework entry points and inherited wrappers. An identity
-            # marker does not mistake metadata copied by wraps() for a wrapper.
-            if body is inspect.getattr_static(Block, name) or (
-                body is not None and getattr(body, "_graphion_lifecycle_wrapper", None) is body
-            ):
-                continue
-            setattr(cls, name, wrap(body))
+            # A hook owned by a Block ancestor is already a framework entry
+            # point or wrapper; only this class's and mixins' bodies need wrapping.
+            owner = next(base for base in cls.__mro__ if name in base.__dict__)
+            if owner is cls or not issubclass(owner, Block):
+                setattr(cls, name, wrap(owner.__dict__[name]))
 
     def __init__(self, **configuration):
         self._values = {}
@@ -300,19 +294,14 @@ class Block:
             raise SetupError("a registered child is built by its lifecycle root")
         if self._tree.built:
             return
-        nodes = tuple(self._walk())
-        for node in nodes:
-            for name, field in node.schema.items():
-                if field.kind != "In":
-                    continue
-                source, port = node._endpoint_source(name)
-                if source.schema[port].kind == "Out" and source is node:
-                    raise WiringError(
-                        f"{node._identity()}.{name}: connected input resolves to its own output writer "
-                        f"{source._identity()}.{port}"
-                    )
+        for node, name, source, port in self._input_sources():
+            if source is node and source.schema[port].kind == "Out":
+                raise WiringError(
+                    f"{node._identity()}.{name}: connected input resolves to its own output writer "
+                    f"{source._identity()}.{port}"
+                )
         # Commit only after every structural endpoint has been validated.
-        for node in nodes:
+        for node in self._walk():
             if node._phase == "new":
                 node._phase = "built"
         self._tree.built = True
@@ -356,6 +345,10 @@ class Block:
     def _ready(self):
         return self._tree.ready
 
+    @property
+    def _unconfigured(self):
+        return self._phase in ("new", "built")
+
     def _identity(self):
         parts = []
         block = self
@@ -369,6 +362,12 @@ class Block:
         yield self
         for child in self._children.values():
             yield from child._walk()
+
+    def _input_sources(self):
+        for node in self._walk():
+            for name, field in node.schema.items():
+                if field.kind == "In":
+                    yield (node, name, *node._endpoint_source(name))
 
     def child(self, name, block):
         if self._tree.failed:
@@ -389,7 +388,7 @@ class Block:
                 raise RegistrationError(f"{name}: lifecycle registration cycle")
             ancestor = ancestor._parent
         descendants = tuple(block._walk())
-        if any(node._phase not in ("new", "built") or node._tree.failed for node in descendants):
+        if any(not node._unconfigured or node._tree.failed for node in descendants):
             raise RegistrationError(f"{name}: child must be previously unconfigured")
         # Validate before adopting the subtree, including its existing descendants.
         block._parent = self
@@ -463,20 +462,16 @@ class Block:
         nodes = tuple(self._walk())
         bindings = []
         external = {}
-        for node in nodes:
-            for name, field in node.schema.items():
-                if field.kind != "In":
-                    continue
-                source, port = node._endpoint_source(name)
-                if source.schema[port].kind == "Out":
-                    view = source._exports[port]
-                else:
-                    key = (id(source), port)
-                    if key not in external:
-                        external[key] = (source, port, [])
-                    external[key][2].append((node, name))
-                    view = source._values.get(port, MISSING)
-                bindings.append((node, name, view))
+        for node, name, source, port in self._input_sources():
+            if source.schema[port].kind == "Out":
+                view = source._exports[port]
+            else:
+                key = (id(source), port)
+                if key not in external:
+                    external[key] = (source, port, [])
+                external[key][2].append((node, name))
+                view = source._values.get(port, MISSING)
+            bindings.append((node, name, view))
 
         writers = tuple(
             arrays.Writer(
@@ -536,7 +531,7 @@ class Block:
                 return
             raise StorageError(f"{name}: write in place; supply Out storage using bind_output before setup")
         else:
-            if self._phase in ("new", "built"):
+            if self._unconfigured:
                 raise UnavailablePortError(f"{name}: State is initialized during setup")
             self._values[name] = value
 
@@ -567,7 +562,7 @@ class Block:
         field = self.schema.get(name)
         if field is None or field.kind != "Out":
             raise StorageError(f"{name}: not an output")
-        if self._phase not in ("new", "built") and not self._in_setup_hook:
+        if not self._unconfigured and not self._in_setup_hook:
             raise StorageError(f"{name}: output storage must be supplied before allocation")
         if name in self._incoming:
             raise StorageError(f"{name}: bind storage to the direct producer, not a forwarded output")
@@ -631,14 +626,12 @@ class Block:
             return self._setup(ctx, None)
 
     def _setup(self, ctx, body):
-        if self._phase not in ("new", "built") or self._tree.failed:
+        if not self._unconfigured or self._tree.failed:
             raise SetupError("setup runs once; construct a new block after failure")
         if self._parent is not None and self._parent._phase != "setting-up":
             raise SetupError("a registered child is set up only within its parent's setup")
         if self._parent is None:
             self._build()
-        elif self._phase != "built":
-            raise SetupError("a registered child requires successful build of its lifecycle root")
         self._phase = "setting-up"
         try:
             if not isinstance(ctx, Ctx) or ctx.xp is not np:
