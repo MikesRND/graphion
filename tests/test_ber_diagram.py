@@ -1,8 +1,11 @@
 import numpy as np
+import pytest
 
 from examples.ber.ber_tb import main, simulate, sweep
 from examples.ber.diagram import BerDiagram
+from graphion.dsp.blocks import Gain
 from graphion.dsp.communications import bpsk, qpsk
+from graphion.profile.numpy_frame import Ctx
 
 
 def test_diagram_uses_description_without_advancing_model(tmp_path):
@@ -23,6 +26,50 @@ def test_diagram_uses_description_without_advancing_model(tmp_path):
     assert (tmp_path / "model.png").read_bytes().startswith(b"\x89PNG")
     np.testing.assert_array_equal(model.prbs.register, before[0])
     np.testing.assert_array_equal(model.counter.total, before[1])
+
+
+def test_diagram_places_the_optional_viewer(tmp_path):
+    plain = BerDiagram(headless=True)
+    plain.update(simulate(qpsk(), 4, frames=1), "QPSK", 1, 3)
+    assert plain.axes.get_xlim() == pytest.approx((-1.6, 12.1))
+    model = simulate(qpsk(), 4, frames=1, viewer_depth=512)
+    before = model.viewer.history.copy()
+    diagram = BerDiagram(headless=True)
+    diagram.update(model, "QPSK", 1, 3)
+    assert diagram.description == model.describe()
+    assert len(diagram.description["connections"]) == 9
+    labels = [label.get_text() for label in diagram.axes.texts]
+    for expected in ("viewer", "ConstellationViewer", "depth=512, skip=24", "points: complex128 [1 × 512]"):
+        assert expected in labels
+    assert labels.count("y → x") == 8  # Every connection but the reference into the counter.
+    assert labels.count("y → ref") == 1
+    assert diagram.axes.get_xlim() == pytest.approx((-1.6, 15.6))
+    diagram.save(tmp_path / "model.png")
+    assert (tmp_path / "model.png").read_bytes().startswith(b"\x89PNG")
+    np.testing.assert_array_equal(model.viewer.history, before)
+
+
+def test_diagram_rejects_other_models():
+    other = Gain()
+    other.setup(Ctx(rate=1, n=8, channels=1))
+    with pytest.raises(ValueError, match="configured BerTestbench"):
+        BerDiagram(headless=True).update(other, "QPSK", 1, 3)
+
+
+def test_update_can_leave_event_servicing_to_the_caller(monkeypatch):
+    import matplotlib.pyplot as plt
+
+    # Build a window-owning diagram on the test canvas.
+    monkeypatch.setattr(plt, "get_backend", lambda: "qtagg")
+    diagram = BerDiagram()
+    shown = []
+    monkeypatch.setattr(plt, "show", lambda **kwargs: shown.append(kwargs))
+    model = simulate(qpsk(), 4, frames=1)
+    diagram.update(model, "QPSK", 1, 3, service_events=False)
+    assert shown == [] and "frame 1 / 3" in diagram.status.get_text()
+    diagram.update(model, "QPSK", 2, 3)
+    assert shown == [{"block": False}] and "frame 2 / 3" in diagram.status.get_text()
+    diagram.close()
 
 
 def test_diagram_updates_point_and_preserves_closed_window():

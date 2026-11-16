@@ -1,4 +1,4 @@
-"""Arithmetic blocks for the Python/NumPy frame Implementation Profile."""
+"""Multiplication by a controllable gain."""
 
 import numpy as np
 

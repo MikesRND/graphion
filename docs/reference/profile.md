@@ -24,7 +24,7 @@ from graphion.dsp.blocks import Gain, FrameDelay, OnePoleLowpass
 ```
 
 The [DSP library](dsp-library.md) also includes FirInterpolate, FirDecimate, Prbs,
-SymbolMapper, SymbolDemapper, Awgn, SampleDelay and ErrorCounter, with stream-context,
+SymbolMapper, SymbolDemapper, Awgn, SampleDelay, ErrorCounter and ConstellationViewer, with stream-context,
 filter-design and communications helpers.
 
 These blocks support this Implementation Profile. Their public library names do

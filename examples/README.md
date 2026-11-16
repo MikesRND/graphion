@@ -16,6 +16,9 @@ uv run python -m examples.ddc.ddc_tb --save ddc.png      # headless spectrum sna
 uv run python -m examples.time_domain --save traces.png
 uv run python -m examples.ber.ber_tb --save ber.png --csv ber.csv
 uv run python -m examples.ber.ber_tb --diagram           # model window during simulation
+uv run python -m examples.ber.live                      # live received constellations
+uv run python -m examples.ber.live --diagram            # with the model window
+uv run python -m examples.ber.live --ticks 60 --save constellations.png
 ```
 
 The [DDC demo](ddc/README.md) shows real-to-complex conversion, exact rate
@@ -24,6 +27,9 @@ seconds, using an unaveraged live spectrum to keep the moving peak sharp.
 
 The [BER demo](ber/README.md) compares pulse-shaped BPSK and QPSK against coherent
 AWGN theory using reusable DSP blocks, fixed bit budgets and statistical checks.
+Its live runner shows the received BPSK and QPSK constellations at one Es/N0
+for a set number of frames, using the library's ConstellationViewer block and
+the plotting library's constellation panel.
 
 The live demos use Matplotlib's QtAgg backend and need a graphical desktop.
 `--save` works without a GUI.

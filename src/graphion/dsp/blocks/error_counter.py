@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from graphion.dsp._validation import is_integer
 from graphion.profile.numpy_frame import Array, Block, C, In, N, Out, Param, SetupError, State
 
 
@@ -20,7 +21,7 @@ class ErrorCounter(Block):
     remaining: int = State(default=0)
 
     def setup(self, ctx):
-        if isinstance(self.skip, bool) or not isinstance(self.skip, (int, np.integer)) or self.skip < 0:
+        if not is_integer(self.skip, 0):
             raise SetupError("skip must be a nonnegative integer")
         self._mask = np.empty((ctx.channels, ctx.n), dtype=bool)
         self._weights = np.empty((ctx.channels, ctx.n), dtype=np.uint64)

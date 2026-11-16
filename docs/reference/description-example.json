@@ -6,7 +6,7 @@
     {
       "path": "root",
       "definition": {
-        "module": "graphion.dsp.blocks.arithmetic",
+        "module": "graphion.dsp.blocks.gain",
         "qualname": "Gain"
       },
       "execution_ownership": "opaque",

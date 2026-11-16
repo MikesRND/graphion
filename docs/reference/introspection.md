@@ -101,7 +101,7 @@ described structure; renaming or moving a block changes it. Definition
 identity is the class's module and qualified name. It names the
 definition and is not promised to be an importable reference.
 Public re-exports retain the defining module: the library's `Gain` reports
-`graphion.dsp.blocks.arithmetic`. Type records may name private
+`graphion.dsp.blocks.gain`. Type records may name private
 Implementation Profile modules, such as
 `graphion.profile.numpy_frame._declarations` for `Axis`.
 
