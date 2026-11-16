@@ -4,12 +4,11 @@ import math
 from copy import deepcopy
 from fractions import Fraction
 from numbers import Integral
-from types import GenericAlias
 
 import numpy as np
 
 from . import _dimensions
-from ._declarations import MISSING, Array, Axis, C, N, Sample
+from ._declarations import MISSING, Axis, C, N, Sample, is_array_annotation
 
 _NUMPY_SCALAR_TYPES = tuple(set(np.sctypeDict.values()))
 
@@ -60,21 +59,8 @@ def _value(value):
     return {"kind": "opaque", "type": _type_name(value)}
 
 
-def _same_alias(value, expected):
-    # Alias equality delegates to its arguments, which can be author objects.
-    if value is expected:
-        return True
-    if type(value) is not GenericAlias or type(expected) is not GenericAlias:
-        return False
-    return (
-        value.__origin__ is expected.__origin__
-        and len(value.__args__) == len(expected.__args__)
-        and all(_same_alias(a, b) for a, b in zip(value.__args__, expected.__args__))
-    )
-
-
 def _value_type(value):
-    if _same_alias(value, Array):
+    if is_array_annotation(value):
         return {"kind": "array"}
     if isinstance(value, type):
         return {"kind": "named", "module": value.__module__, "qualname": value.__qualname__}

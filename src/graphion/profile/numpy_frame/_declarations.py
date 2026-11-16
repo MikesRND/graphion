@@ -3,6 +3,7 @@
 import inspect
 import sys
 from dataclasses import dataclass
+from types import GenericAlias
 from typing import Any, Literal, get_origin, get_type_hints, overload
 
 import numpy as np
@@ -12,7 +13,8 @@ from graphion.errors import DeclarationError, StorageError, UnavailablePortError
 
 from . import _dimensions
 
-Array = NDArray[np.generic]
+Array = NDArray[Any]
+_LEGACY_ARRAY = NDArray[np.generic]
 
 
 class _Missing:
@@ -194,6 +196,23 @@ def own_annotations(cls):
     return inspect.get_annotations(cls, eval_str=False)
 
 
+def _same_alias(value, expected):
+    # Alias equality delegates to its arguments, which can be author objects.
+    if value is expected:
+        return True
+    if type(value) is not GenericAlias or type(expected) is not GenericAlias:
+        return False
+    return (
+        value.__origin__ is expected.__origin__
+        and len(value.__args__) == len(expected.__args__)
+        and all(_same_alias(a, b) for a, b in zip(value.__args__, expected.__args__))
+    )
+
+
+def is_array_annotation(value_type):
+    return _same_alias(value_type, Array) or _same_alias(value_type, _LEGACY_ARRAY)
+
+
 def is_array_configuration(value_type):
     # NumPy also exposes NDArray as a PEP 695 alias on newer interpreters.
     origin = get_origin(value_type)
@@ -221,7 +240,7 @@ def resolve_value_type(cls, name, annotations, declaration):
     except Exception as exc:
         raise DeclarationError(f"{label}: cannot resolve field annotation") from exc
     if declaration.kind in ("In", "Out") or declaration.axes:
-        if value_type != Array:
+        if not is_array_annotation(value_type):
             raise DeclarationError(f"{label}: ports and array State require the Array annotation")
     elif declaration.kind == "State":
         if not (

@@ -110,7 +110,7 @@ can change at runtime. It does not become an input edge in the diagram.
 ### Declaration syntax and inheritance
 
 Fields hold declaration roles, axes, dtype and defaults. Annotations describe
-instance values. The public `Array` alias is `numpy.typing.NDArray[np.generic]`;
+instance values. The public `Array` alias is `numpy.typing.NDArray[Any]`;
 it does not encode shape, actual sample dtype, writability or Param immutability.
 Those remain runtime contracts. `dtype` defaults to `Sample` for ports and array
 State, irrespective of the value annotation.
@@ -173,9 +173,10 @@ supported resolution scope. Forward references to not-yet-defined classes are
 unsupported; use types available when the block class is defined. `describe()` uses the stored
 resolved value type and never reevaluates annotations or axis properties.
 
-Ports and array State must be annotated `Array` (an alias resolving to the same
-`NDArray[np.generic]` type is equivalent). A scalar annotation on array State, or
-`Array` on zero-axis scalar State, raises `DeclarationError` at class definition.
+Ports and array State accept `Array`, the legacy spelling
+`numpy.typing.NDArray[np.generic]`, and aliases resolving to either of them.
+A scalar annotation on array State, or `Array` on zero-axis scalar State,
+raises `DeclarationError` at class definition.
 Scalar State annotations must designate a Python numeric/bool scalar or NumPy
 numeric/bool scalar type; arbitrary object history belongs in author attributes.
 Using `dtype` for scalar State or any unsupported field argument is a declaration
