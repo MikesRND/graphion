@@ -25,6 +25,7 @@ from graphion import (
 )
 from graphion.dsp.blocks import Gain
 from graphion.profile.numpy_frame import _storage as arrays
+from tests.typing_helpers import misuse
 
 
 def context(dtype=np.float64, n=4):
@@ -179,10 +180,10 @@ class BlockTests(unittest.TestCase):
             def build(self):
                 self.built_with = self.required
 
-        with self.assertRaises(ParamError):
-            Configured()
-        with self.assertRaises(ParamError):
-            Configured(required=1, typo=3)
+        with self.assertRaisesRegex(ParamError, "required configuration"):
+            misuse(Configured)()
+        with self.assertRaisesRegex(ParamError, "unknown configuration: typo"):
+            misuse(Configured)(required=1, typo=3)
         a, b = Configured(required=1), Configured(required=2)
         self.assertEqual(a.built_with, 1)
         self.assertFalse(np.shares_memory(a.coefficients, b.coefficients))
@@ -412,10 +413,10 @@ class BlockTests(unittest.TestCase):
             class Reserved(Block):
                 ctx: int = Param(default=1)
 
-        with self.assertRaises(DeclarationError):
+        with self.assertRaisesRegex(DeclarationError, "State: a default is required"):
 
             class MissingDefault(Block):
-                memory: Array = State(N, dtype=float)
+                memory: Array = misuse(State)(N, dtype=float)
 
         with self.assertRaises(DeclarationError):
 

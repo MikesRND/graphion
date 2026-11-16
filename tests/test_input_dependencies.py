@@ -7,6 +7,7 @@ import pytest
 
 from graphion import Array, Block, DeclarationError, In, N, Out, UnavailablePortError, needs_inputs
 from tests.test_phases import configured
+from tests.typing_helpers import misuse
 
 
 class Pair(Block):
@@ -111,7 +112,7 @@ def test_invalid_decorator_uses():
     with pytest.raises(DeclarationError, match="parentheses"):
 
         class Bare(Block):
-            @needs_inputs
+            @misuse(needs_inputs)
             def output(self):
                 pass
 

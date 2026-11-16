@@ -27,6 +27,7 @@ from graphion import (
     StorageError,
 )
 from graphion.profile.numpy_frame import _storage as arrays
+from tests.typing_helpers import misuse
 
 
 def context(**changes):
@@ -251,11 +252,11 @@ class ContextValidationTests(unittest.TestCase):
                     with self.assertRaisesRegex(SetupError, "y.*axis"):
                         cls().setup(context())
         for name in (None, 1, [], "missing"):
-
-            class Missing(Block):
-                y: Array = Out(Axis(name))
-
             with self.subTest(name=name), self.assertRaisesRegex(SetupError, "y.*axis"):
+
+                class Missing(Block):
+                    y: Array = Out(Axis(misuse(name)))
+
                 Missing().setup(context())
 
     def test_zero_and_numpy_integer_axes_resolve_once_in_memory_order(self):
@@ -288,8 +289,8 @@ class ContextValidationTests(unittest.TestCase):
             block.x = original
             reader = block.x
             with self.subTest(value_type=type(value)):
-                with self.assertRaises(DtypeError):
-                    block.x = value
+                with self.assertRaisesRegex(DtypeError, "expected a NumPy ndarray"):
+                    block.x = misuse(value)
                 self.assertIs(block.x, reader)
                 with self.assertRaises(DtypeError):
                     Copy().bind_output("y", value)

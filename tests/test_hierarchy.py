@@ -19,6 +19,7 @@ from graphion import (
     WiringError,
 )
 from graphion.dsp.blocks import Gain
+from tests.typing_helpers import misuse
 
 
 def context():
@@ -39,10 +40,10 @@ class HierarchyTests(unittest.TestCase):
         view = parent.children
         self.assertIs(parent.first, supplied)
         self.assertIs(view["first /~"], supplied)
-        with self.assertRaises(TypeError):
-            view["other"] = Block()
-        with self.assertRaises(AttributeError):
-            parent.children = {}
+        with self.assertRaisesRegex(TypeError, "does not support item assignment"):
+            misuse(view)["other"] = Block()
+        with self.assertRaisesRegex(AttributeError, "has no setter"):
+            misuse(parent).children = {}
         parent.setup(context())
         self.assertIs(parent.children, view)
         self.assertEqual(list(view), ["first /~", "last"])
@@ -64,18 +65,21 @@ class HierarchyTests(unittest.TestCase):
 
         parent = Parent()
         existing = parent.child("existing", Block())
-        for name, child in [
-            ("", Block()),
-            (None, Block()),
-            (3, Block()),
-            ("reserved", Block()),
-            ("existing", Block()),
-            ("invalid", object()),
-            ("self", parent),
-            ("again", existing),
+        for name, child, message in [
+            ("", Block(), "name must be a nonempty string"),
+            (None, Block(), "name must be a nonempty string"),
+            (3, Block(), "name must be a nonempty string"),
+            ("reserved", Block(), "declaration-name collision"),
+            ("existing", Block(), "duplicate child name"),
+            ("invalid", object(), "child must be a Block"),
+            ("self", parent, "lifecycle registration cycle"),
+            ("again", existing, "child already has a lifecycle parent"),
         ]:
-            with self.subTest(name=name), self.assertRaises(RegistrationError) as caught:
-                parent.child(name, child)
+            with self.subTest(name=name), self.assertRaisesRegex(RegistrationError, message) as caught:
+                parent.child(
+                    name if isinstance(name, str) else misuse(name),
+                    child if isinstance(child, Block) else misuse(child),
+                )
             self.assertIsInstance(caught.exception, BlockError)
             self.assertEqual(dict(parent.children), {"existing": existing})
         other = Block()

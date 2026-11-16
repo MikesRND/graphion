@@ -12,6 +12,7 @@ import numpy as np
 from graphion import Array, Block, C, Ctx, DeclarationError, In, N, Out, Param, PortSpec, SetupError, State
 from graphion.profile.numpy_frame import _dimensions
 from tests.test_declarations import module_with
+from tests.typing_helpers import misuse
 
 
 class RequiredSize(Block):
@@ -115,8 +116,7 @@ class Model(Block):
             ("2", "integers or Fractions"),
         ):
             with self.subTest(value=value), self.assertRaisesRegex(SetupError, message):
-                # Runtime configuration validation is exercised independently of typing.
-                model = RequiredSize(**{"factor": value})  # type: ignore[arg-type]
+                model = RequiredSize(factor=misuse(value))
                 model.setup(context())
 
     def test_fraction_param_and_instance_overrides_are_independent(self) -> None:

@@ -21,6 +21,7 @@ from graphion import (
 )
 from graphion.profile.numpy_frame import _storage as arrays
 from tests.test_connections import Scale, Source, context
+from tests.typing_helpers import misuse
 
 
 class Relay(Block):
@@ -105,14 +106,14 @@ class FinalizationTests(unittest.TestCase):
         model.x = original
         previous = model.x
         model.run()
-        for value, error in [
-            (np.ones(3), ShapeError),
-            (np.ones(4, dtype=np.float32), DtypeError),
-            (model.a.worker.worker.y, StorageError),
-            (None, DtypeError),
+        for value, error, message in [
+            (np.ones(3), ShapeError, "expected shape"),
+            (np.ones(4, dtype=np.float32), DtypeError, "expected dtype"),
+            (model.a.worker.worker.y, StorageError, "storage overlaps"),
+            (None, DtypeError, "expected a NumPy ndarray"),
         ]:
-            with self.subTest(error=error), self.assertRaises(error):
-                model.x = value
+            with self.subTest(error=error), self.assertRaisesRegex(error, message):
+                model.x = misuse(value) if value is None else value
             for node in readers(model):
                 self.assertIs(node.x, previous)
             np.testing.assert_array_equal(model.run()[0], original * 2)

@@ -15,6 +15,7 @@ from examples.time_domain import make_plot as time_plot
 from graphion import Ctx
 from graphion.dsp.blocks import ConstellationViewer
 from tests.animation_helpers import run_to_completion
+from tests.typing_helpers import misuse
 
 
 @unittest.skipUnless(importlib.util.find_spec("matplotlib"), "plotting requires optional matplotlib")
@@ -156,7 +157,7 @@ class PlottingTests(unittest.TestCase):
         self.assertEqual(len(constellation_panel(viewer, channel=np.int64(1)).series), 1)
         for channel in (-1, 2, 1.0, True):
             with self.subTest(channel=channel), self.assertRaisesRegex(ValueError, r"channel must be .* \[0, 2\)"):
-                constellation_panel(viewer, channel=channel)
+                constellation_panel(viewer, channel=misuse(channel))
         for limit in (0, -1.5, np.nan, np.inf):
             with self.subTest(limit=limit), self.assertRaisesRegex(ValueError, "limit"):
                 constellation_panel(viewer, limit=limit)

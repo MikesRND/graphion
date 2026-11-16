@@ -26,6 +26,7 @@ from graphion import (
     StorageError,
 )
 from graphion.dsp.blocks import Gain
+from tests.typing_helpers import misuse
 
 
 @contextmanager
@@ -95,10 +96,10 @@ class DeclarationTests(unittest.TestCase):
                 (field.name, field.kind, field.value_type, field.dtype, field.axes), (name, kind, hint, dtype, axes)
             )
             self.assertIs(field.default, value)
-            with self.assertRaises(FrozenInstanceError):
-                field.default = None
-        with self.assertRaises(TypeError):
-            schema["other"] = schema["x"]
+            with self.assertRaisesRegex(FrozenInstanceError, "cannot assign to field"):
+                misuse(field).default = None
+        with self.assertRaisesRegex(TypeError, "does not support item assignment"):
+            misuse(schema)["other"] = schema["x"]
         self.assertTrue(default.flags.writeable)
         a, b = Model(required=1), Model(required=2)
         default.fill(9)
@@ -119,8 +120,8 @@ class DeclarationTests(unittest.TestCase):
         self.assertIs(Untouched.schema["gain"], Required.schema["gain"])
         self.assertEqual(Gain().gain, 1.0)
         self.assertEqual(Untouched(gain=2).extra, 3)
-        with self.assertRaises(ParamError):
-            Required()
+        with self.assertRaisesRegex(ParamError, "gain: required configuration"):
+            misuse(Required)()
 
     def test_inherited_fields_cannot_be_silently_shadowed(self):
         for attributes in (
@@ -143,17 +144,17 @@ class DeclarationTests(unittest.TestCase):
             x: Array = In(C, N)
             y: Array = Out(C, N)
 
-        for kwargs in (
-            {},
-            {"factor": 2, "x": np.ones((1, 1))},
-            {"factor": 2, "y": np.ones((1, 1))},
-            {"factor": 2, "count": 1},
-            {"factor": 2, "typo": 1},
+        for kwargs, message in (
+            ({}, "factor: required configuration"),
+            ({"factor": 2, "x": np.ones((1, 1))}, "unknown configuration: x"),
+            ({"factor": 2, "y": np.ones((1, 1))}, "unknown configuration: y"),
+            ({"factor": 2, "count": 1}, "unknown configuration: count"),
+            ({"factor": 2, "typo": 1}, "unknown configuration: typo"),
         ):
-            with self.subTest(kwargs=kwargs), self.assertRaises(ParamError):
-                Model(**kwargs)
-        with self.assertRaises(TypeError):
-            Model(2)
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ParamError, message):
+                misuse(Model)(**kwargs)
+        with self.assertRaisesRegex(TypeError, "positional argument"):
+            misuse(Model)(2)
         model = Model(factor=2, gain="stored without coercion")
         self.assertEqual(model.gain, "stored without coercion")
         with self.assertRaises(ParamError):
@@ -242,9 +243,9 @@ class DeclarationTests(unittest.TestCase):
             with self.subTest(value=value):
                 for name in ("p", "c"):
                     with self.assertRaisesRegex(ParamError, name):
-                        Model(**{name: value})
+                        Model(**{name: misuse(value)})
                 with self.assertRaisesRegex(ParamError, "c"):
-                    model.c = value
+                    model.c = misuse(value)
                 self.assertIs(model.c, original)
                 np.testing.assert_array_equal(model.c, [3.0, 4.0])
         for value in ([], [[1, 2], [3, 4]], 1.5, np.array([1 + 2j])):
@@ -299,27 +300,31 @@ class DeclarationTests(unittest.TestCase):
 
     def test_invalid_field_arguments_raise_declaration_error(self):
         invalid = (
-            lambda: Param(1),
-            lambda: Param(dtype=float),
-            lambda: Control(1),
-            lambda: Control(dtype=float),
-            lambda: In(default=1),
-            lambda: Out(default=1),
-            lambda: State(),
-            lambda: State(N),
-            lambda: State(default=0, dtype=float),
-            lambda: In(unknown=True),
-            lambda: Param(init=False),
-            lambda: Control(init=False),
+            (Param, (1,), {}, "Param: unsupported field arguments"),
+            (Param, (), {"dtype": float}, "Param: unsupported field arguments"),
+            (Control, (1,), {}, "Control: unsupported field arguments"),
+            (Control, (), {"dtype": float}, "Control: unsupported field arguments"),
+            (In, (), {"default": 1}, "In: unsupported field arguments"),
+            (Out, (), {"default": 1}, "Out: unsupported field arguments"),
+            (State, (), {}, "State: a default is required"),
+            (State, (N,), {}, "State: a default is required"),
+            (State, (), {"default": 0, "dtype": float}, "State: scalar State does not accept dtype"),
+            (In, (), {"unknown": True}, "In: unsupported field arguments"),
+            (Param, (), {"init": False}, "Param: unsupported field arguments"),
+            (Control, (), {"init": False}, "Control: unsupported field arguments"),
         )
-        for factory in invalid:
-            with self.subTest(factory=factory), self.assertRaises(DeclarationError):
-                factory()
+        for factory, args, kwargs, message in invalid:
+            with (
+                self.subTest(factory=factory, args=args, kwargs=kwargs),
+                self.assertRaisesRegex(DeclarationError, message),
+            ):
+                misuse(factory)(*args, **kwargs)
         for factory in (In, Out, State):
             for value in (False, True, None):
-                with self.subTest(factory=factory, init=value), self.assertRaises(DeclarationError):
+                message = f"{factory.__name__}: unsupported field arguments"
+                with self.subTest(factory=factory, init=value), self.assertRaisesRegex(DeclarationError, message):
                     kwargs = {"default": 0} if factory is State else {}
-                    factory(init=value, **kwargs)
+                    factory(init=misuse(value), **kwargs)
 
     def test_missing_and_unresolved_annotations_identify_field(self):
         for annotations in ({}, {"value": "UnknownType"}, {"value": "ClassNotDefinedYet"}):
