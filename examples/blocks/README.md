@@ -11,7 +11,7 @@ from examples.blocks import Tone, Spectrum, Tuner, FirDecimate, DDC, MultiChanne
 |---|---|
 | [tone.py](tone.py) | Real sine-wave source with amplitude/frequency Controls and phase State. |
 | [tuner.py](tuner.py) | Phase-continuous mixing to complex samples. |
-| [fir_decimate.py](fir_decimate.py) | Windowed-sinc coefficient design and streaming FIR decimation. |
+| [fir_decimate.py](fir_decimate.py) | Compatibility re-exports of library FirDecimate and lowpass. |
 | [spectrum.py](spectrum.py) | Two-sided PSD with a Hann window and configurable exponential averaging. |
 | [ddc.py](ddc.py) | One mixer and three filter/decimator stages with an explicit output context. |
 | [multichannel_ddc.py](multichannel_ddc.py) | Three DDC branches sharing an input buffer. |
@@ -19,7 +19,10 @@ from examples.blocks import Tone, Spectrum, Tuner, FirDecimate, DDC, MultiChanne
 The DDC coefficients are designed for a 1.024 MHz ADC rate and decimation by
 16, with a −3 dB edge near ±25.6 kHz. Their normalized frequency response
 scales with the input rate. `output_ctx` describes the decimated stream;
-starting with a Fraction rate preserves exact arithmetic through every stage.
+`stream_ctx` preserves exact arithmetic for both integer and Fraction input rates.
+The [DSP library](../../docs/reference/dsp-library.md) now owns FIR decimation and
+coefficient design; existing `examples.blocks` imports keep working. Stream ports
+participate in the shared convention; Spectrum.psd is deliberately excluded.
 
 Blocks follow Graphion's ordinary setup/run/reset and storage rules. Owners
 call children in signal-flow order. Spectra and other outputs are reusable

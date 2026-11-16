@@ -14,11 +14,16 @@ uv run python -m examples.ddc.ddc_tb                    # three-channel spectrum
 uv run python -m examples.time_domain                  # input/filtered time traces and spectra
 uv run python -m examples.ddc.ddc_tb --save ddc.png      # headless spectrum snapshot
 uv run python -m examples.time_domain --save traces.png
+uv run python -m examples.ber.ber_tb --save ber.png --csv ber.csv
+uv run python -m examples.ber.ber_tb --diagram           # model window during simulation
 ```
 
 The [DDC demo](ddc/README.md) shows real-to-complex conversion, exact rate
 changes, input fan-out and nested composites. Its first tuner sweeps over 30
 seconds, using an unaveraged live spectrum to keep the moving peak sharp.
+
+The [BER demo](ber/README.md) compares pulse-shaped BPSK and QPSK against coherent
+AWGN theory using reusable DSP blocks, fixed bit budgets and statistical checks.
 
 The live demos use Matplotlib's QtAgg backend and need a graphical desktop.
 `--save` works without a GUI.

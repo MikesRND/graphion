@@ -49,7 +49,10 @@ Read the files from the leaves upward:
 
 Each DDC's input context stays at the ADC rate. Its `output_ctx` describes the
 decimated complex output, and supplies the downstream monitors' contexts.
-Starting with a `Fraction` rate preserves exact arithmetic through every stage.
+Each stage derives its next context with `stream_ctx(stage, "y")`; `output_ctx`
+is retained for compatibility and shared downstream context identity. Both
+integer and `Fraction` input rates now produce exact Fraction rates after
+decimation; float input rates remain float.
 The 23-tap halfbands protect the wanted band; the 101-tap final FIR has a
 −3 dB edge near ±25.6 kHz and a stopband beginning at ±38.4 kHz.
 

@@ -9,6 +9,7 @@ class Tuner(Block):
     freq: float = Control()
     x: Array = In(C, N)
     y: Array = Out(C, N, dtype=np.complex128)
+    stream_ports = ("x", "y")
     phase: float = State(default=0.0)
 
     def setup(self, ctx: Ctx):

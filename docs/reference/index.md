@@ -12,6 +12,7 @@ introduction, follow the [user guide](../guide/index.md).
 |---|---|
 | [Shared block model](model.md) | Parameters, controls, state, ports, hierarchy and execution ownership |
 | [Python and NumPy](profile.md) | Synchronous processing, complete frames and supported operations |
+| [DSP library](dsp-library.md) | Stream contexts, reusable blocks, filters, energy and SNR conventions |
 | [Declarations](declarations.md) | Fields, annotations, configuration, State and inheritance |
 | [Context and types](context-and-types.md) | Dtypes, axes, resolution and array validation |
 | [Lifecycle](lifecycle.md) | Children, build, setup, finalization, reset and hook ordering |

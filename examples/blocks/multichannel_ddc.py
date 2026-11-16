@@ -15,6 +15,7 @@ class MultiChannelDDC(Block):
     y0: Array = Out(C, N / DECIMATION, dtype=np.complex128)
     y1: Array = Out(C, N / DECIMATION, dtype=np.complex128)
     y2: Array = Out(C, N / DECIMATION, dtype=np.complex128)
+    stream_ports = ("x", "y0", "y1", "y2")
 
     @property
     def output_ctx(self):

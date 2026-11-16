@@ -9,6 +9,7 @@ class Spectrum(Block):
     avg: float = Control(default=0.9)
     x: Array = In(C, N)
     psd: Array = Out(C, N, dtype=np.float64)
+    stream_ports = ("x",)
     acc: Array = State(C, N, dtype=np.float64, default=0.0)
 
     def setup(self, ctx: Ctx):
