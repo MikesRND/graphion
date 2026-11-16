@@ -9,6 +9,7 @@ class Tone(Block):
     freq: float = Control(default=10.0)
     amplitude: float = Control(default=1.0)
     y: Array = Out(C, N)
+    stream_ports = ("y",)
     phase: float = State(default=0.0)
 
     def setup(self, ctx: Ctx):

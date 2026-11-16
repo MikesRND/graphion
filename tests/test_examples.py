@@ -3,13 +3,12 @@ from fractions import Fraction
 
 import numpy as np
 
-from examples.blocks import DDC, FirDecimate, MultiChannelDDC, Tone
+from examples.blocks import DDC, MultiChannelDDC, Tone
 from examples.blocks.ddc import PASSBAND_HZ
 from examples.ddc.ddc_tb import ADC_RATE, OFFSETS_HZ
 from examples.ddc.ddc_tb import Testbench as DdcTestbench
 from examples.time_domain import FRAME_LENGTH, RATE, TimeDomain
 from graphion import Ctx, SetupError
-from tests.allocation_helpers import check_storage_regression
 
 
 class DdcExampleTests(unittest.TestCase):
@@ -121,81 +120,6 @@ class DdcExampleTests(unittest.TestCase):
     def test_nondivisible_frame_is_rejected(self):
         with self.assertRaises(SetupError):
             MultiChannelDDC().setup(Ctx(rate=ADC_RATE, n=4081, channels=1))
-
-
-class FirDecimateExampleTests(unittest.TestCase):
-    FRAMES = 5
-
-    @staticmethod
-    def signal(rng, channels, length, dtype, offset):
-        """Noise on a common offset; a large offset must cancel in zero-sum taps."""
-        values = offset + rng.standard_normal((channels, length))
-        if dtype is np.complex128:
-            values = values + 1j * (offset + rng.standard_normal((channels, length)))
-        return values.astype(dtype)
-
-    def streamed(self, block, signal, n):
-        frames = []
-        for start in range(0, signal.shape[1], n):
-            block.x = signal[:, start : start + n]
-            frames.append(block.run().copy())
-        return np.concatenate(frames, axis=1)
-
-    def test_streaming_matches_causal_convolution(self):
-        rng = np.random.default_rng(7)
-        for ntaps, factor, n in ((1, 1, 8), (1, 4, 8), (5, 2, 64), (23, 2, 4), (23, 4, 8), (101, 4, 256)):
-            for channels in (1, 3):
-                for dtype in (np.float64, np.complex128):
-                    for offset in (0.0, 1e6):
-                        with self.subTest(
-                            ntaps=ntaps, factor=factor, n=n, channels=channels, dtype=dtype.__name__, offset=offset
-                        ):
-                            taps = rng.standard_normal(ntaps)
-                            if offset and ntaps > 1:
-                                taps -= taps.mean()
-                            signal = self.signal(rng, channels, self.FRAMES * n, dtype, offset)
-                            block = FirDecimate(taps=taps, factor=factor)
-                            block.setup(Ctx(rate=1000, n=n, channels=channels, dtype=dtype))
-                            self.assertEqual(block.history.shape, (channels, ntaps - 1))
-                            actual = self.streamed(block, signal, n)
-                            expected = np.stack([np.convolve(row, taps)[: signal.shape[1] : factor] for row in signal])
-                            self.assertEqual(actual.dtype, np.dtype(dtype))
-                            # Rounding scales with the operands, not with an output that may cancel.
-                            bound = ntaps * np.finfo(np.float64).eps * np.abs(signal).max() * np.abs(taps).sum()
-                            np.testing.assert_allclose(actual, expected, rtol=0, atol=bound)
-
-    def test_reset_replays_exactly(self):
-        rng = np.random.default_rng(8)
-        for dtype in (np.float64, np.complex128):
-            with self.subTest(dtype=dtype.__name__):
-                block = FirDecimate(taps=rng.standard_normal(23), factor=2)
-                block.setup(Ctx(rate=1000, n=64, channels=2, dtype=dtype))
-                signal = self.signal(rng, 2, 4 * 64, dtype, 0.0)
-                first = self.streamed(block, signal, 64)
-                block.reset()
-                np.testing.assert_array_equal(self.streamed(block, signal, 64), first)
-
-    def test_unsupported_dtypes_are_rejected(self):
-        for sample_dtype, tap_dtype in (
-            (np.float32, np.float64),
-            (np.complex64, np.float64),
-            (np.int16, np.float64),
-            (np.float64, np.float32),
-            (np.complex128, np.complex128),
-        ):
-            with self.subTest(samples=sample_dtype.__name__, taps=tap_dtype.__name__):
-                block = FirDecimate(taps=np.ones(3, dtype=tap_dtype), factor=1)
-                with self.assertRaisesRegex(SetupError, "float64 or complex128 samples and float64 taps"):
-                    block.setup(Ctx(rate=1000, n=8, channels=1, dtype=sample_dtype))
-
-    def test_processing_avoids_frame_sized_temporaries(self):
-        rng = np.random.default_rng(9)
-        for dtype in (np.float64, np.complex128):
-            with self.subTest(dtype=dtype.__name__):
-                block = FirDecimate(taps=rng.standard_normal(23), factor=2)
-                block.setup(Ctx(rate=1000, n=65536, channels=2, dtype=dtype))
-                block.x = self.signal(rng, 2, 65536, dtype, 0.0)
-                check_storage_regression(block.run, frame_bytes=block.y.nbytes, repeats=5)
 
 
 class TimeDomainExampleTests(unittest.TestCase):

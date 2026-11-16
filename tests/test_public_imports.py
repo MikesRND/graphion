@@ -51,7 +51,14 @@ class PublicImportTests(unittest.TestCase):
 
     def test_fresh_import_orders_and_standard_library_profiler(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        for entry in ("graphion", "graphion.profile.numpy_frame", "graphion.dsp.blocks"):
+        for entry in (
+            "graphion",
+            "graphion.profile.numpy_frame",
+            "graphion.dsp.blocks",
+            "graphion.dsp.streams",
+            "graphion.dsp.filter_design",
+            "graphion.dsp.communications",
+        ):
             for profiler_first in (False, True):
                 with self.subTest(entry=entry, profiler_first=profiler_first):
                     imports = [f"import {entry}", "import cProfile"]

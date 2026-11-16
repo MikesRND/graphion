@@ -3,6 +3,7 @@
 import numpy as np
 
 from graphion import Array, Block, C, Ctx, In, N, Out, Param
+from graphion.dsp.streams import stream_ctx
 
 from .fir_decimate import FirDecimate, lowpass
 from .tuner import Tuner
@@ -19,6 +20,7 @@ class DDC(Block):
     freq: float = Param()
     x: Array = In(C, N)
     y: Array = Out(C, N / DECIMATION, dtype=np.complex128)
+    stream_ports = ("x", "y")
 
     def build(self):
         self.tune = self.child("tune", Tuner(freq=self.freq))
@@ -35,10 +37,10 @@ class DDC(Block):
 
     def setup(self, ctx: Ctx):
         self.tune.setup(ctx)
-        c = ctx.replace(dtype=np.complex128)
+        c = stream_ctx(self.tune, "y")
         for stage in self._stages:
             stage.setup(c)
-            c = c.replace(n=stage.port_spec("y").shape[1], rate=c.rate / stage.factor)
+            c = stream_ctx(stage, "y")
         self.output_ctx = c
 
     def process(self):

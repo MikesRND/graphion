@@ -23,6 +23,10 @@ from graphion.profile.numpy_frame import Block, Ctx
 from graphion.dsp.blocks import Gain, FrameDelay, OnePoleLowpass
 ```
 
+The [DSP library](dsp-library.md) also includes FirInterpolate, FirDecimate, Prbs,
+SymbolMapper, SymbolDemapper, Awgn, SampleDelay and ErrorCounter, with stream-context,
+filter-design and communications helpers.
+
 These blocks support this Implementation Profile. Their public library names do
 not select or guarantee support for other Implementation Profiles.
 

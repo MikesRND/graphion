@@ -8,7 +8,9 @@ field calls describe their role.
 
 Import authoring types from `graphion` or explicitly from
 `graphion.profile.numpy_frame`. Reusable DSP blocks, including `Gain`,
-`FrameDelay`, and `OnePoleLowpass`, are available from `graphion.dsp.blocks`.
+`FrameDelay`, `OnePoleLowpass`, FIR interpolation/decimation, Prbs, symbol mapping,
+Awgn, SampleDelay and ErrorCounter, are available from `graphion.dsp.blocks`.
+See the [DSP library](../reference/dsp-library.md) for their contracts and stream contexts.
 The example below shows how to write a delay block yourself.
 
 ```python

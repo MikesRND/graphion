@@ -9,6 +9,7 @@ class Gain(Block):
     gain: float = Control(default=1.0)
     x: Array = In(C, N)
     y: Array = Out(C, N)
+    stream_ports = ("x", "y")
 
     def output(self):
         np.multiply(self.x, self.gain, out=self.y)
