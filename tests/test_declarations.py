@@ -134,9 +134,11 @@ class DeclarationTests(unittest.TestCase):
             {"gain": Control(default=2.0)},
             {"gain": Param(default=2.0), "__annotations__": {"gain": float}},
         ):
-            with self.subTest(attributes=attributes):
-                with self.assertRaisesRegex(DeclarationError, "Shadow.gain"):
-                    type("Shadow", (Gain,), attributes)
+            with (
+                self.subTest(attributes=attributes),
+                self.assertRaisesRegex(DeclarationError, "Shadow.gain"),
+            ):
+                type("Shadow", (Gain,), attributes)
 
     def test_constructor_accepts_only_keyword_configuration(self):
         class Model(Block):
@@ -208,9 +210,11 @@ class DeclarationTests(unittest.TestCase):
             (str, State(default="")),
             (object, State(default=object())),
         ):
-            with self.subTest(hint=hint, kind=field.kind):
-                with self.assertRaisesRegex(DeclarationError, "Mismatch.value"):
-                    type("Mismatch", (Block,), {"__annotations__": {"value": hint}, "value": field})
+            with (
+                self.subTest(hint=hint, kind=field.kind),
+                self.assertRaisesRegex(DeclarationError, "Mismatch.value"),
+            ):
+                type("Mismatch", (Block,), {"__annotations__": {"value": hint}, "value": field})
 
     def test_invalid_array_configuration_defaults_fail_at_definition(self):
         invalid = (
@@ -224,16 +228,18 @@ class DeclarationTests(unittest.TestCase):
         for factory in (Param, Control):
             for hint in (np.ndarray, Array, NDArray[np.float64]):
                 for value in invalid:
-                    with self.subTest(factory=factory, hint=hint, value=value):
-                        with self.assertRaisesRegex(DeclarationError, "Invalid.value default"):
-                            type(
-                                "Invalid",
-                                (Block,),
-                                {
-                                    "__annotations__": {"value": hint},
-                                    "value": factory(default=value),
-                                },
-                            )
+                    with (
+                        self.subTest(factory=factory, hint=hint, value=value),
+                        self.assertRaisesRegex(DeclarationError, "Invalid.value default"),
+                    ):
+                        type(
+                            "Invalid",
+                            (Block,),
+                            {
+                                "__annotations__": {"value": hint},
+                                "value": factory(default=value),
+                            },
+                        )
 
     def test_invalid_array_configuration_preserves_current_control(self):
         class Model(Block):
@@ -254,7 +260,7 @@ class DeclarationTests(unittest.TestCase):
         for value in ([], [[1, 2], [3, 4]], 1.5, np.array([1 + 2j])):
             with self.subTest(valid=value):
                 # The assignment API accepts array-like inputs, and the annotation describes the stored array.
-                setattr(model, "c", value)
+                model.c = cast(Array, value)
                 np.testing.assert_array_equal(model.c, np.asarray(value))
                 self.assertFalse(model.c.dtype.hasobject)
         # Mutating a declaration's default does not bypass construction checks.
@@ -334,9 +340,11 @@ class DeclarationTests(unittest.TestCase):
 
     def test_missing_and_unresolved_annotations_identify_field(self):
         for annotations in ({}, {"value": "UnknownType"}, {"value": "ClassNotDefinedYet"}):
-            with self.subTest(annotations=annotations):
-                with self.assertRaisesRegex(DeclarationError, "Broken.value"):
-                    type("Broken", (Block,), {"__annotations__": annotations, "value": Param()})
+            with (
+                self.subTest(annotations=annotations),
+                self.assertRaisesRegex(DeclarationError, "Broken.value"),
+            ):
+                type("Broken", (Block,), {"__annotations__": annotations, "value": Param()})
 
     def test_annotation_modes_have_equivalent_schemas(self):
         source = """
@@ -385,8 +393,9 @@ class Model(Block):
                 self.assertEqual(module.Model().value, 3)
 
     def test_inherited_resolution_uses_defining_module_and_class_scope(self):
-        with module_with(
-            """
+        with (
+            module_with(
+                """
 from graphion import Array, Block, In, Param
 Alias = int
 ArrayAlias = Array
@@ -395,9 +404,9 @@ class Parent(Block):
     p: "Alias" = Param(default=1)
     x: "ArrayAlias" = In()
 """,
-            "_graphion_parent",
-        ) as parent:
-            with module_with(
+                "_graphion_parent",
+            ) as parent,
+            module_with(
                 """
 from _graphion_parent import Parent
 from graphion import Param
@@ -406,11 +415,12 @@ class Child(Parent):
     q: "ClassAlias" = Param(default=2.)
 """,
                 "_graphion_child",
-            ) as child:
-                self.assertIs(child.Child.schema["p"], parent.Parent.schema["p"])
-                self.assertIs(child.Child.schema["p"].value_type, int)
-                self.assertIs(child.Child.schema["q"].value_type, float)
-                self.assertEqual(child.Child.schema["x"].value_type, Array)
+            ) as child,
+        ):
+            self.assertIs(child.Child.schema["p"], parent.Parent.schema["p"])
+            self.assertIs(child.Child.schema["p"].value_type, int)
+            self.assertIs(child.Child.schema["q"].value_type, float)
+            self.assertEqual(child.Child.schema["x"].value_type, Array)
 
     def test_unquoted_local_annotation_preserves_the_type_object(self):
         with module_with("""
@@ -432,11 +442,12 @@ Model, ValueType = make()
             ("from __future__ import annotations\n", "LocalType"),
             ("from __future__ import annotations\n", '"LocalType"'),
         ):
-            with self.subTest(prefix=prefix, annotation=annotation):
-                with self.assertRaisesRegex(DeclarationError, "Local.value"):
-                    with module_with(
-                        prefix
-                        + """
+            with (
+                self.subTest(prefix=prefix, annotation=annotation),
+                self.assertRaisesRegex(DeclarationError, "Local.value"),
+                module_with(
+                    prefix
+                    + """
 from graphion import Block, Param
 def make():
     class LocalType:
@@ -446,13 +457,15 @@ def make():
     return Local
 make()
 """.replace("ANNOTATION", annotation)
-                    ):
-                        pass
+                ),
+            ):
+                pass
 
     def test_generic_parameters_resolve_in_all_annotation_modes(self):
         for prefix, annotation in (("", "T"), ("", '"T"'), ("from __future__ import annotations\n", "T")):
-            with self.subTest(prefix=prefix, annotation=annotation):
-                with module_with(
+            with (
+                self.subTest(prefix=prefix, annotation=annotation),
+                module_with(
                     prefix
                     + """
 from graphion import Block, Param
@@ -461,10 +474,11 @@ class Model[T](Block):
 class Child[U](Model):
     other: U = Param()
 """.replace("ANNOTATION", annotation)
-                ) as module:
-                    self.assertIs(module.Model.schema["value"].value_type, module.Model.__type_params__[0])
-                    self.assertIs(module.Child.schema["value"], module.Model.schema["value"])
-                    self.assertIs(module.Child.schema["other"].value_type, module.Child.__type_params__[0])
+                ) as module,
+            ):
+                self.assertIs(module.Model.schema["value"].value_type, module.Model.__type_params__[0])
+                self.assertIs(module.Child.schema["value"], module.Model.schema["value"])
+                self.assertIs(module.Child.schema["other"].value_type, module.Child.__type_params__[0])
 
     def test_multiple_block_inheritance_is_rejected(self):
         class Other(Block):

@@ -182,7 +182,7 @@ class BuildTests(unittest.TestCase):
             node.bind_output("y", np.empty(4))
         outputs = [node._supplied["y"] for node in (model, branch, leaf)]
         model.setup(context())
-        for node, output in zip((model, branch, leaf), outputs):
+        for node, output in zip((model, branch, leaf), outputs, strict=False):
             self.assertIs(node.y, output)
             self.assertEqual(node.count, 0)
             np.testing.assert_array_equal(node.x, np.arange(4.0))

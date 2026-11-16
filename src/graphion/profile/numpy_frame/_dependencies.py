@@ -7,6 +7,7 @@ from typing import Any, TypeVar, overload
 from graphion.errors import DeclarationError
 
 _Hook = TypeVar("_Hook", bound=Callable[..., Any])
+_INPUT_DEPENDENCIES_ATTR = "_graphion_input_dependencies"
 
 
 @overload
@@ -35,9 +36,9 @@ def needs_inputs(*names: str | None) -> Callable[[_Hook], _Hook]:
     def decorate(hook: _Hook) -> _Hook:
         if not inspect.isfunction(hook) or hook.__name__ != "output":
             raise DeclarationError("needs_inputs applies only to the output instance method")
-        if hasattr(hook, "_graphion_input_dependencies"):
+        if hasattr(hook, _INPUT_DEPENDENCIES_ATTR):
             raise DeclarationError("output may have only one needs_inputs decorator")
-        setattr(hook, "_graphion_input_dependencies", dependencies)
+        setattr(hook, _INPUT_DEPENDENCIES_ATTR, dependencies)
         return hook
 
     return decorate

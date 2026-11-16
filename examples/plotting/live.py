@@ -69,7 +69,7 @@ class LivePlotter:
             raise ValueError("frames must be a positive integer or None")
         self.panels = tuple(panels)
         positions = [panel.position if panel.position is not None else (i, 0) for i, panel in enumerate(panels)]
-        for panel, (row, column) in zip(panels, positions):
+        for panel, (row, column) in zip(panels, positions, strict=False):
             if row < 0 or column < 0 or min(panel.span) < 1 or not panel.series:
                 raise ValueError("panels need series, nonnegative positions and positive spans")
         self.step = step
@@ -90,12 +90,12 @@ class LivePlotter:
 
             self.figure = plt.figure(figsize=figsize, layout="constrained")
         self.figure.suptitle(title)
-        rows = max(row + panel.span[0] for panel, (row, column) in zip(panels, positions))
-        columns = max(column + panel.span[1] for panel, (row, column) in zip(panels, positions))
+        rows = max(row + panel.span[0] for panel, (row, column) in zip(panels, positions, strict=False))
+        columns = max(column + panel.span[1] for panel, (row, column) in zip(panels, positions, strict=False))
         grid = self.figure.add_gridspec(rows, columns)
         self.axes: list[Axes] = []
         self.lines: list[tuple[Line2D, ...]] = []
-        for panel, (row, column) in zip(panels, positions):
+        for panel, (row, column) in zip(panels, positions, strict=False):
             ax = self.figure.add_subplot(grid[row : row + panel.span[0], column : column + panel.span[1]])
             ax.set(title=panel.title, xlabel=panel.xlabel, ylabel=panel.ylabel)
             if panel.xlim is not None:
@@ -108,7 +108,7 @@ class LivePlotter:
             lines = tuple(
                 ax.plot([], [], label=series.label, color=series.color, linewidth=1)[0] for series in panel.series
             )
-            for series, line in zip(panel.series, lines):
+            for series, line in zip(panel.series, lines, strict=False):
                 if series.marker is not None:
                     line.set_marker(series.marker)
                     line.set_linestyle("none")
@@ -119,8 +119,8 @@ class LivePlotter:
 
     def refresh(self) -> tuple[Line2D, ...]:
         """Read the latest data without advancing the model."""
-        for panel, ax, lines in zip(self.panels, self.axes, self.lines):
-            for series, line in zip(panel.series, lines):
+        for panel, ax, lines in zip(self.panels, self.axes, self.lines, strict=False):
+            for series, line in zip(panel.series, lines, strict=False):
                 line.set_data(series.x() if callable(series.x) else series.x, series.y())
             if panel.xlim is None or panel.ylim is None:
                 ax.relim()

@@ -329,7 +329,7 @@ class DescriptionTests(unittest.TestCase):
             {"real": 1.0, "imag": {"float": "-inf"}},
             "numpy",
         ]
-        for value, represented in zip(values, expected):
+        for value, represented in zip(values, expected, strict=False):
             with self.subTest(type=type(value)):
                 snapshot = Configuration(value=value).describe()
                 result = {"kind": "literal", "value": represented}
@@ -430,7 +430,7 @@ class DescriptionTests(unittest.TestCase):
         results = []
         for mode in ("evaluated", "quoted", "postponed"):
 
-            def annotation(name):
+            def annotation(name, mode=mode):
                 return repr(name) if mode == "quoted" else name
 
             source = "from __future__ import annotations\n" if mode == "postponed" else ""

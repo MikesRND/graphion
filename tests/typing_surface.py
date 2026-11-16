@@ -202,7 +202,7 @@ def execution_typing_checks() -> None:
     result[0]
     len(result)
     pair = Pair()
-    first, second = pair.run()
+    _first, _second = pair.run()
     split = pair.run_output()
     assert_type(split, Array | Any)
     assert split is not None

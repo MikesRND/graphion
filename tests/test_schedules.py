@@ -100,7 +100,7 @@ class ScheduleTests(unittest.TestCase):
                 model.x = source
                 buffers = (model.first.held, model.second.held, model.first.y, model.second.y)
                 result = None
-                for replay in range(2):
+                for _ in range(2):
                     for index in range(5):
                         source[:] = base * (index + 1)
                         actual = model.run()
@@ -112,7 +112,7 @@ class ScheduleTests(unittest.TestCase):
                         np.testing.assert_array_equal(actual, expected)
                     model.reset()
                     for before, after in zip(
-                        buffers, (model.first.held, model.second.held, model.first.y, model.second.y)
+                        buffers, (model.first.held, model.second.held, model.first.y, model.second.y), strict=False
                     ):
                         self.assertIs(before, after)
                     np.testing.assert_array_equal(model.first.held, 0)
@@ -129,7 +129,7 @@ class ScheduleTests(unittest.TestCase):
                     model.x = source
                     history = model.previous
                     self.assertFalse(np.shares_memory(model.y, history))
-                    for replay in range(2):
+                    for _ in range(2):
                         for index, weight in enumerate((1, 0.5, 0.25, 0.125, 0.0625)):
                             source[:] = impulse if index == 0 else 0
                             np.testing.assert_array_equal(model.run(), impulse * weight)

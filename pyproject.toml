@@ -46,7 +46,21 @@ target-version = "py312"
 extend-exclude = [".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I"]
+allowed-confusables = ["×", "σ"]
+select = [
+    "E4", "E7", "E9", "F", "I",
+    "B", "C4", "NPY", "PERF", "PIE", "RUF", "SIM", "UP",
+    "D", "ERA", "FIX", "PGH003", "PGH004",
+]
+ignore = ["D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"{examples,docs}/**" = ["D101", "D102", "D103"]
+"src/graphion/dsp/blocks/**" = ["D102"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"

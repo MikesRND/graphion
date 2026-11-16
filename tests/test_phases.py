@@ -368,7 +368,7 @@ def test_feedback_and_exchange_without_a_global_update_barrier():
     root.connect(delay, "y", adder, "q")
     root.connect(adder, "y", delay, "x")
     configured(root)
-    for replay in range(2):
+    for _ in range(2):
         for value, expected in ((1, 1), (0, 0.5), (0, 0.25), (0, 0.125)):
             adder.x = frame(value)
             delay.run_output()

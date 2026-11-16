@@ -40,6 +40,7 @@ from ._declarations import (
     _Declaration,
     _Field,
 )
+from ._dependencies import _INPUT_DEPENDENCIES_ATTR
 from .context import Ctx
 from .spec import PortSpec
 
@@ -90,11 +91,11 @@ class _Call:
 
 def _processing_phases(cls):
     hooks = {name: inspect.getattr_static(cls, name) for name in ("process", "output", "update") if hasattr(cls, name)}
-    if "process" in hooks and len(hooks) != 1 or "update" in hooks and "output" not in hooks:
+    if ("process" in hooks and len(hooks) != 1) or ("update" in hooks and "output" not in hooks):
         raise DeclarationError(f"{cls.__qualname__}: define process, or output with optional update")
     for name, value in vars(cls).items():
         method = value.__func__ if isinstance(value, (staticmethod, classmethod)) else value
-        if inspect.isfunction(method) and hasattr(method, "_graphion_input_dependencies") and name != "output":
+        if inspect.isfunction(method) and hasattr(method, _INPUT_DEPENDENCIES_ATTR) and name != "output":
             raise DeclarationError(f"{cls.__qualname__}.{name}: needs_inputs applies only to output")
     inputs = tuple(port for port, field in cls.schema.items() if field.kind == "In")
     dependencies = {}
@@ -109,7 +110,7 @@ def _processing_phases(cls):
             or parameters[0].default is not inspect.Parameter.empty
         ):
             raise DeclarationError(f"{cls.__qualname__}.{name}: processing hook must take only positional self")
-        declared = getattr(hook, "_graphion_input_dependencies", None)
+        declared = getattr(hook, _INPUT_DEPENDENCIES_ATTR, None)
         if declared is None:
             dependencies[name] = inputs
         else:
@@ -437,7 +438,7 @@ class Block:
         if destination.kind == "Out" and destination_port in destination_block._supplied:
             raise StorageError(f"{destination_port}: a supplied output cannot be forwarded")
         connection = _Connection(source_block, source_port, destination_block, destination_port)
-        records = self._connections + (connection,)
+        records = (*self._connections, connection)
         destination_block._incoming[destination_port] = connection
         self._connections = records
 
@@ -491,7 +492,7 @@ class Block:
             for writer in node._writers
         )
         arrays.validate_writers(writers)
-        for source, port, readers in external.values():
+        for source, port, _ in external.values():
             if port in source._input_raw:
                 arrays.validate_input_storage(
                     source._input_raw[port], f"{source._identity()}.{port} (external input)", writers

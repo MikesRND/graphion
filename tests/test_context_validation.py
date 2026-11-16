@@ -354,9 +354,12 @@ class ContextValidationTests(unittest.TestCase):
             output = np.empty((2, 4))
             block = Copy()
             block.bind_output("y", output)
-            with self.subTest(known=known), patch.object(arrays, "is_writable", return_value=known):
-                with self.assertRaisesRegex(StorageError, "known writable"):
-                    block.setup(context())
+            with (
+                self.subTest(known=known),
+                patch.object(arrays, "is_writable", return_value=known),
+                self.assertRaisesRegex(StorageError, "known writable"),
+            ):
+                block.setup(context())
             self.assertTrue(output.flags.writeable)
         readonly = np.empty((2, 4))
         readonly.flags.writeable = False

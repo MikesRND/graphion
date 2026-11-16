@@ -20,6 +20,8 @@ class _Parameter:
 
         @property
         def kind(self) -> str: ...
+    else:
+        kind: str
 
 
 class _Arithmetic:

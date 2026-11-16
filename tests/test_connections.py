@@ -76,7 +76,7 @@ class ConnectionTests(unittest.TestCase):
             parent.connect(*edge)
         records = parent.connections
         self.assertIsInstance(records, tuple)
-        for record, (source, source_port, destination, destination_port) in zip(records, endpoints):
+        for record, (source, source_port, destination, destination_port) in zip(records, endpoints, strict=False):
             self.assertIs(record.source_block, source)
             self.assertIs(record.destination_block, destination)
             self.assertEqual(record.source_port, source_port)

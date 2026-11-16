@@ -1,4 +1,5 @@
 import unittest
+from contextlib import suppress
 
 import numpy as np
 
@@ -213,14 +214,14 @@ class HierarchyTests(unittest.TestCase):
         branch.reset()
         self.assertEqual([node.count for node in nodes], [2, 1, 1, 2])
         self.assertEqual(branch.gain, 3.0)
-        for node, (state, output) in zip(nodes, arrays_before):
+        for node, (state, output) in zip(nodes, arrays_before, strict=False):
             self.assertIs(node.history, state)
             self.assertIs(node.y, output)
             np.testing.assert_array_equal(output, np.ones(4))
         np.testing.assert_array_equal(branch.history, np.zeros(4))
         np.testing.assert_array_equal(leaf.history, np.zeros(4))
         np.testing.assert_array_equal(root.history, np.ones(4))
-        for node, result in zip(nodes, results):
+        for node, result in zip(nodes, results, strict=False):
             self.assertIs(node.run(), result)
 
     def test_prebuilt_subtree_stays_unready_until_root_finishes(self):
@@ -400,10 +401,14 @@ class HierarchyTests(unittest.TestCase):
             error = ValueError("child setup failure")
 
             class Bad(Block):
+                _error = error
+
                 def setup(self, ctx):
-                    raise error
+                    raise self._error
 
             class Parent(Block):
+                _catch_child_error = catch_child_error
+
                 def build(self):
                     self.good = self.child("good", Block())
                     self.bad = self.child("bad", Bad())
@@ -411,18 +416,16 @@ class HierarchyTests(unittest.TestCase):
 
                 def setup(self, ctx):
                     self.good.setup(ctx)
-                    if catch_child_error:
-                        try:
+                    if self._catch_child_error:
+                        with suppress(ValueError):
                             self.bad.setup(ctx)
-                        except ValueError:
-                            pass
 
             parent = Parent()
             expected = SetupError if catch_child_error else ValueError
             with self.subTest(caught=catch_child_error), self.assertRaises(expected):
                 parent.setup(context())
             for node in (parent, *parent.children.values()):
-                for operation in (node.run, node.reset, lambda: node.setup(context())):
+                for operation in (node.run, node.reset, lambda node=node: node.setup(context())):
                     with self.assertRaises(SetupError):
                         operation()
                 with self.assertRaisesRegex(RegistrationError, "after setup failure; construct a new tree"):

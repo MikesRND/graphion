@@ -65,7 +65,7 @@ def make_plot(run, esn0_db, *, ticks, headless=False, interval_ms=50, on_tick=No
 
     def label():
         plotter.figure.suptitle(f"Received constellations · Es/N0 {esn0_db:g} dB · tick {run.ticks:,} / {ticks:,}")
-        for ax, (name, model) in zip(plotter.axes, run.models.items()):
+        for ax, (name, model) in zip(plotter.axes, run.models.items(), strict=False):
             ber = model.counter.rate[0] if run.ticks else math.nan
             measured = "BER —" if math.isnan(ber) else f"BER {ber:.2e}"
             ax.set_title(f"{name} · Eb/N0 {model.ebn0_db:.2f} dB · {measured}")

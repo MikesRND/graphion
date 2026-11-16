@@ -118,9 +118,11 @@ class FinalizationTests(unittest.TestCase):
                 self.assertIs(node.x, previous)
             np.testing.assert_array_equal(model.run()[0], original * 2)
         replacement = np.full(4, 7.0)
-        with patch.object(arrays, "readonly_view", side_effect=RuntimeError("view failure")):
-            with self.assertRaisesRegex(RuntimeError, "view failure"):
-                model.x = replacement
+        with (
+            patch.object(arrays, "readonly_view", side_effect=RuntimeError("view failure")),
+            self.assertRaisesRegex(RuntimeError, "view failure"),
+        ):
+            model.x = replacement
         for node in readers(model):
             self.assertIs(node.x, previous)
         model.x = replacement
@@ -159,20 +161,22 @@ class FinalizationTests(unittest.TestCase):
 
                 class Parent(Block):
                     x: Array = In(N)
+                    _reverse = reverse
+                    _source_kind = source_kind
 
                     def build(self):
                         self.branch = Relay(target=Relay(target=Scale(gain=2.0)))
                         self.source = Source(value=7.0)
                         children = [("branch", self.branch), ("source", self.source)]
-                        for name, child in reversed(children) if reverse else children:
+                        for name, child in reversed(children) if self._reverse else children:
                             self.child(name, child)
-                        if source_kind == "external":
+                        if self._source_kind == "external":
                             self.connect(self, "x", self.branch, "x")
                         else:
                             self.connect(self.source, "y", self.branch, "x")
 
                     def setup(self, ctx):
-                        if source_kind == "external":
+                        if self._source_kind == "external":
                             self.x = np.full(4, 5.0)
 
                 with self.subTest(reverse=reverse, source=source_kind):

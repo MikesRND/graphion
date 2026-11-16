@@ -82,7 +82,7 @@ class BerTestbench(Block):
         self.delay = self.child("delay", SampleDelay(delay=self.bit_delay))
         self.counter = self.child("counter", ErrorCounter(skip=self.skip))
         self._chain = (self.prbs, self.mapper, self.tx, self.chan, self.rx, self.demap)
-        for source, destination in zip(self._chain, self._chain[1:]):
+        for source, destination in zip(self._chain, self._chain[1:], strict=False):
             self.connect(source, "y", destination, "x")
         self.connect(self.demap, "y", self.counter, "x")
         self.connect(self.prbs, "y", self.delay, "x")

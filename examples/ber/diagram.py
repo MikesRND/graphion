@@ -1,6 +1,6 @@
 """A host-side diagram of the running BER model, drawn from describe()."""
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import numpy as np
 
@@ -17,7 +17,7 @@ class BerDiagram:
     constellation viewer is placed beside the block it taps.
     """
 
-    POSITIONS = {
+    POSITIONS: ClassVar[dict[str, tuple[float, float]]] = {
         "root/prbs": (0, 3.2),
         "root/mapper": (3.5, 3.2),
         "root/tx": (7, 3.2),
@@ -27,7 +27,7 @@ class BerDiagram:
         "root/counter": (3.5, 0),
         "root/delay": (0, 0),
     }
-    OPTIONAL_POSITIONS = {"root/viewer": (14, 0)}
+    OPTIONAL_POSITIONS: ClassVar[dict[str, tuple[float, float]]] = {"root/viewer": (14, 0)}
 
     def __init__(self, *, headless=False):
         self._headless = headless

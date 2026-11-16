@@ -125,9 +125,10 @@ def _dimension(axis):
         if isinstance(axis.name, str):
             return {"kind": "axis", "name": str(axis.name)}
         return _invalid(axis)
-    if isinstance(axis, Integral) and not isinstance(axis, (bool, np.bool_)):
-        if axis >= 0:  # pyrefly: ignore[unsupported-operation]  # Integral stubs omit ordering with int.
-            return _resolved(int(axis))
+    if (
+        isinstance(axis, Integral) and not isinstance(axis, (bool, np.bool_)) and (axis >= 0)  # pyrefly: ignore[unsupported-operation]  # Integral stubs omit ordering with int.
+    ):
+        return _resolved(int(axis))
     return _invalid(axis)
 
 

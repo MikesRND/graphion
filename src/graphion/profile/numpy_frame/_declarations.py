@@ -205,7 +205,7 @@ def _same_alias(value, expected):
     return (
         value.__origin__ is expected.__origin__
         and len(value.__args__) == len(expected.__args__)
-        and all(_same_alias(a, b) for a, b in zip(value.__args__, expected.__args__))
+        and all(_same_alias(a, b) for a, b in zip(value.__args__, expected.__args__, strict=False))
     )
 
 
@@ -242,9 +242,9 @@ def resolve_value_type(cls, name, annotations, declaration):
     if declaration.kind in ("In", "Out") or declaration.axes:
         if not is_array_annotation(value_type):
             raise DeclarationError(f"{label}: ports and array State require the Array annotation")
-    elif declaration.kind == "State":
-        if not (
-            isinstance(value_type, type) and issubclass(value_type, (bool, int, float, complex, np.number, np.bool_))
-        ):
-            raise DeclarationError(f"{label}: scalar State requires a numeric or bool annotation")
+        return value_type
+    if declaration.kind == "State" and not (
+        isinstance(value_type, type) and issubclass(value_type, (bool, int, float, complex, np.number, np.bool_))
+    ):
+        raise DeclarationError(f"{label}: scalar State requires a numeric or bool annotation")
     return value_type

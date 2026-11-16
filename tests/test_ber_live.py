@@ -57,7 +57,7 @@ def test_display_starts_empty_and_reading_never_advances(tmp_path):
     plotter.save(tmp_path / "before.png")
     assert run.ticks == 0
     assert "tick 0 / 2" in plotter.figure.get_suptitle()
-    for (received, ideal), (name, model) in zip(plotter.lines, run.models.items()):
+    for (received, ideal), (name, model) in zip(plotter.lines, run.models.items(), strict=False):
         assert np.isnan(received.get_xdata()).all()  # Nothing is captured until the first tick.
         np.testing.assert_array_equal(ideal.get_xdata(), np.real(model.constellation))
         np.testing.assert_array_equal(model.prbs.register, fresh[name].prbs.register)
@@ -68,7 +68,7 @@ def test_display_starts_empty_and_reading_never_advances(tmp_path):
     assert run.ticks == 1
     assert "tick 1 / 2" in plotter.figure.get_suptitle()
     assert_same_state(run.models, advanced(1), 1)
-    for (received, _), ax, (name, model) in zip(plotter.lines, plotter.axes, run.models.items()):
+    for (received, _), ax, (name, model) in zip(plotter.lines, plotter.axes, run.models.items(), strict=False):
         np.testing.assert_array_equal(received.get_xdata(), model.viewer.points[0].real)
         np.testing.assert_array_equal(received.get_ydata(), model.viewer.points[0].imag)
         assert ax.get_title().startswith(f"{name} · Eb/N0 {model.ebn0_db:.2f} dB")

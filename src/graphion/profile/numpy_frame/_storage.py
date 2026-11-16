@@ -45,7 +45,9 @@ def validate_output_layout(array, name):
     """Conservatively prove that supplied output elements have disjoint bytes."""
     if 0 in array.shape:
         return
-    dimensions = sorted((abs(stride), length) for stride, length in zip(array.strides, array.shape) if length > 1)
+    dimensions = sorted(
+        (abs(stride), length) for stride, length in zip(array.strides, array.shape, strict=False) if length > 1
+    )
     span = array.dtype.itemsize
     for stride, length in dimensions:
         if stride < span:

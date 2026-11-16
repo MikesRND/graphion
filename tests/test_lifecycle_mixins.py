@@ -251,9 +251,11 @@ class LifecycleMixinTests(unittest.TestCase):
             inherited = type("InheritedMixin", (mixin,), {})
             for candidate in (mixin, inherited):
                 for bases in ((candidate, Block), (Block, candidate)):
-                    with self.subTest(name=name, bases=bases):
-                        with self.assertRaisesRegex(DeclarationError, f"ProtectedMixin.*framework-owned.*{name}"):
-                            type("Invalid", bases, {})
+                    with (
+                        self.subTest(name=name, bases=bases),
+                        self.assertRaisesRegex(DeclarationError, f"ProtectedMixin.*framework-owned.*{name}"),
+                    ):
+                        type("Invalid", bases, {})
 
     def test_protected_mixin_descriptors_are_rejected_without_evaluation(self):
         class Descriptor:
@@ -263,9 +265,11 @@ class LifecycleMixinTests(unittest.TestCase):
         for name in ("schema", "ctx", "children"):
             mixin = type("ProtectedMixin", (), {name: Descriptor()})
             for bases in ((mixin, Block), (Block, mixin)):
-                with self.subTest(name=name, bases=bases):
-                    with self.assertRaisesRegex(DeclarationError, f"framework-owned.*{name}"):
-                        type("Invalid", bases, {})
+                with (
+                    self.subTest(name=name, bases=bases),
+                    self.assertRaisesRegex(DeclarationError, f"framework-owned.*{name}"),
+                ):
+                    type("Invalid", bases, {})
 
     def test_generated_schemas_remain_valid_through_multiple_block_generations(self):
         class Helper:
