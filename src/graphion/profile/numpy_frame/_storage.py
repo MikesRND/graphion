@@ -103,7 +103,11 @@ def require_disjoint(a, a_name, b, b_name):
     if not np.may_share_memory(a, b):
         return
     try:
-        overlaps = np.shares_memory(a, b, max_work=OVERLAP_MAX_WORK)
+        overlaps = np.shares_memory(
+            a,
+            b,
+            max_work=OVERLAP_MAX_WORK,  # pyrefly: ignore[bad-argument-type]  # NumPy accepts a positive work limit.
+        )
     except np.exceptions.TooHardError as exc:
         raise StorageError(f"overlap check exhausted its work limit: {a_name} and {b_name}") from exc
     if overlaps:

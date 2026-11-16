@@ -1,5 +1,10 @@
 """Errors raised by Graphion block contracts."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .profile.numpy_frame.block import Block
+
 
 class BlockError(Exception):
     pass
@@ -14,7 +19,7 @@ class ParamError(BlockError):
 
 
 class SetupError(BlockError):
-    pass
+    _context_block: "Block"
 
 
 class ExecutionError(BlockError):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -16,7 +16,10 @@ class _Parameter:
     """Marker shared by declaration and schema records; has no operators."""
 
     __slots__ = ()
-    kind: str
+    if TYPE_CHECKING:
+
+        @property
+        def kind(self) -> str: ...
 
 
 class _Arithmetic:

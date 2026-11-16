@@ -1,12 +1,12 @@
 """Block declarations, lifecycle and storage management."""
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import wraps
 from numbers import Integral
 from types import MappingProxyType, MemberDescriptorType
-from typing import dataclass_transform
+from typing import Any, cast, dataclass_transform
 
 import numpy as np
 
@@ -27,6 +27,7 @@ from . import _declarations, _dimensions
 from . import _storage as arrays
 from ._declarations import (
     MISSING,
+    Array,
     Axis,
     C,
     Control,
@@ -74,9 +75,9 @@ class _TreeStatus:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class _Connection:
-    source_block: object
+    source_block: "Block"
     source_port: str
-    destination_block: object
+    destination_block: "Block"
     destination_port: str
 
 
@@ -239,7 +240,7 @@ class Block:
         self._local_setup_complete = False
         self._tree = _TreeStatus()
         self._parent = None
-        self._child_name = None
+        self._child_name: str | None = None
         self._children = {}
         self._children_view = MappingProxyType(self._children)
         self._connections = ()
@@ -257,7 +258,8 @@ class Block:
         }
         # Share the phase readiness records refreshed by rebinding.
         self._process_call = self._calls.get("process")
-        self._output_call = self._calls.get("output")
+        # run() guards its split branch; the checker cannot correlate the two phase records.
+        self._output_call: _Call | Any = self._calls.get("output")
         self._update_call = self._calls.get("update")
         self._run_missing: tuple[str, ...] = ()
         self._config_locked = False
@@ -353,23 +355,24 @@ class Block:
         parts = []
         block = self
         while block._parent is not None:
-            parts.append(block._child_name.replace("~", "~0").replace("/", "~1"))
+            parts.append(cast(str, block._child_name).replace("~", "~0").replace("/", "~1"))
             block = block._parent
         path = "/".join(("root", *reversed(parts)))
         return f"{path} ({type(self).__qualname__})"
 
-    def _walk(self):
+    def _walk(self) -> Iterator["Block"]:
         yield self
         for child in self._children.values():
             yield from child._walk()
 
-    def _input_sources(self):
+    def _input_sources(self) -> Iterator[tuple["Block", str, "Block", str]]:
         for node in self._walk():
             for name, field in node.schema.items():
                 if field.kind == "In":
-                    yield (node, name, *node._endpoint_source(name))
+                    source, port = node._endpoint_source(name)
+                    yield node, name, source, port
 
-    def child(self, name, block):
+    def child[B: Block](self, name: str, block: B) -> B:
         if self._tree.failed:
             raise RegistrationError("cannot register children after setup failure; construct a new tree")
         if self._phase != "new":
@@ -431,11 +434,11 @@ class Block:
         destination_block._incoming[destination_port] = connection
         self._connections = records
 
-    def _endpoint_source(self, name):
+    def _endpoint_source(self, name: str) -> tuple["Block", str]:
         # Inputs travel up boundary forwarding until an external slot or an
         # output is reached. Outputs then travel down to their direct producer.
         # Never follow the producer's inputs: signal feedback is caller-ordered.
-        block = self
+        block: Block = self
         while name in block._incoming:
             edge = block._incoming[name]
             block, name = edge.source_block, edge.source_port
@@ -738,7 +741,7 @@ class Block:
                 for node in self._walk():
                     node._reset_prepared = False
 
-    def run(self):
+    def run(self) -> Array | Any:
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
@@ -769,7 +772,7 @@ class Block:
             raise
         return self._result
 
-    def run_output(self):
+    def run_output(self) -> Array | Any:
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
