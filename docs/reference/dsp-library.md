@@ -132,8 +132,12 @@ sign, with zero positive. Both are unit energy, and QPSK has Gray labeling.
 Awgn uses nominal signal power P without per-frame estimation. For
 `gamma = 10**(snr_db/10)`, real noise variance is `P/gamma`; complex noise splits
 that power equally between independent I and Q. Seeds accept NumPy's generator
-seed forms, including SeedSequence. Setup saves generator state and reset
-restores it. The channel has no modulation-specific knowledge.
+seed forms, including SeedSequence, Generator and BitGenerator. Setup copies the
+generator state into private storage and reset restores that private snapshot;
+neither running nor resetting a block advances or rewinds the caller's RNG.
+Blocks initialized from the same RNG state produce identical noise. For
+independent streams, pass independently seeded Generators or distinct children
+from `SeedSequence.spawn()`. The channel has no modulation-specific knowledge.
 
 The communications helpers use dB throughout:
 

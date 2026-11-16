@@ -22,9 +22,25 @@ from graphion.dsp.blocks import (
 from graphion.dsp.communications import bpsk, bpsk_qpsk_ber, ebn0_to_snr_db, qpsk
 from graphion.dsp.filter_design import rrc
 from graphion.dsp.streams import stream_ctx
-from graphion.profile.numpy_frame import Array, Block, Ctx, Param, SetupError
+from graphion.profile.numpy_frame import Array, Block, Ctx, Param
 
 from .prediction import FiniteFilterPrediction
+
+
+def _matched_alignment(ntaps, sps, bits_per_symbol):
+    """Sample delay, phase, reference-bit delay and startup skip for matched taps."""
+    sample_delay = ntaps - 1  # RX is the conjugate reverse of TX, with equal length.
+    phase = sample_delay % sps
+    bit_delay = ((sample_delay - phase) // sps) * bits_per_symbol
+    return sample_delay, phase, bit_delay, 2 * bit_delay
+
+
+def _frame_budget(target, bit_cap, frame_size, skip):
+    """Round the target to frames while respecting the cap on compared bits."""
+    frames = min(math.ceil((target + skip) / frame_size), (bit_cap + skip) // frame_size)
+    if frames * frame_size <= skip:
+        raise ValueError("bit cap cannot accommodate a full frame with compared bits")
+    return frames
 
 
 class BerTestbench(Block):
@@ -44,13 +60,7 @@ class BerTestbench(Block):
         table = np.asarray(self.constellation)
         self.k = len(table).bit_length() - 1
         rx_taps = self.taps.conj()[::-1].copy()
-        twice_delay = len(self.taps) + len(rx_taps) - 2
-        if twice_delay % 2:
-            raise SetupError("combined filter delay must be an integer")
-        self.sample_delay = twice_delay // 2
-        self.phase = self.sample_delay % self.sps
-        self.bit_delay = ((self.sample_delay - self.phase) // self.sps) * self.k
-        self.skip = 2 * self.bit_delay
+        self.sample_delay, self.phase, self.bit_delay, self.skip = _matched_alignment(len(self.taps), self.sps, self.k)
         power = float(np.mean(np.abs(table) ** 2) * np.sum(np.abs(self.taps) ** 2) / self.sps)
         snr = float(ebn0_to_snr_db(self.ebn0_db, self.k, self.sps)) if self.snr_db is None else self.snr_db
         self.prbs = self.child("prbs", Prbs())
@@ -90,6 +100,8 @@ def agreement(errors: int, total: int, prediction: float) -> tuple[float, str]:
     sigma = math.sqrt(prediction * (1 - prediction) / total)
     delta = errors / total - prediction
     deviation = delta / sigma if sigma else (0.0 if delta == 0 else math.copysign(math.inf, delta))
+    if prediction == 0 and errors > 0:
+        return deviation, "FAIL"
     if total * prediction <= 25:
         return deviation, "INCONCLUSIVE"
     return deviation, "PASS" if abs(delta) <= 5 * sigma else "FAIL"
@@ -159,9 +171,7 @@ def sweep(points, *, error_target=1000, bit_cap=10_000_000, frame_size=4096, see
             prediction = predictor.ber(tb.chan.snr_db)
             penalty = prediction / theory if theory else (math.inf if prediction else math.nan)
             target = math.ceil(error_target / prediction) if prediction > error_target / bit_cap else bit_cap
-            frames = min(math.ceil((target + tb.skip) / frame_size), (bit_cap + tb.skip) // frame_size)
-            if frames * frame_size <= tb.skip:
-                raise ValueError("bit cap cannot accommodate a full frame with compared bits")
+            frames = _frame_budget(target, bit_cap, frame_size, tb.skip)
             if progress is not None:
                 progress(tb, name, 0, frames)
             next_refresh = perf_counter() + 0.1
@@ -269,11 +279,12 @@ def main(argv=None):
         parser.error("--span and --sps must be positive")
     if not math.isfinite(args.rolloff) or not 0 <= args.rolloff <= 1:
         parser.error("--rolloff must lie in [0, 1]")
-    for k in (1, 2):
-        skip = 2 * args.span * k
-        frames = (args.bit_cap + skip) // args.frame_size
-        if frames * args.frame_size <= skip:
-            parser.error("--bit-cap cannot accommodate a full frame with compared bits for both modulations")
+    try:
+        for k in (1, 2):
+            _, _, _, skip = _matched_alignment(args.span * args.sps + 1, args.sps, k)
+            _frame_budget(args.bit_cap, args.bit_cap, args.frame_size, skip)
+    except ValueError as exc:
+        parser.error(str(exc))
     points = np.arange(args.start, args.stop + args.step * 1e-9, args.step)
     diagram = None
     if args.diagram:

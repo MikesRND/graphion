@@ -1,4 +1,5 @@
 import math
+from copy import deepcopy
 
 import numpy as np
 import pytest
@@ -166,6 +167,49 @@ def test_awgn_statistics_and_replay(dtype):
     np.testing.assert_array_equal(same.run(), first)
     block.snr_db = np.inf
     np.testing.assert_array_equal(block.run(), block.x)
+
+
+@pytest.mark.parametrize("bit_generator", [np.random.PCG64, np.random.MT19937, np.random.Philox])
+@pytest.mark.parametrize("seed_form", ["generator", "bit_generator"])
+def test_awgn_owns_rng_and_cannot_rewind_caller_or_sibling(bit_generator, seed_form):
+    caller = np.random.Generator(bit_generator(71))
+    caller.standard_normal(17)  # Clone the current state, not merely the original seed.
+    original = deepcopy(caller)
+    seed = caller if seed_form == "generator" else caller.bit_generator
+    first = Awgn(snr_db=0, signal_power=1, seed=seed)
+    second = Awgn(snr_db=0, signal_power=1, seed=seed)
+    for block in (first, second):
+        block.setup(context())
+        block.x = np.zeros((1, 64))
+        assert block._rng is not caller
+        assert block._rng.bit_generator is not caller.bit_generator
+    assert first._rng.bit_generator is not second._rng.bit_generator
+    expected_first = original.standard_normal((1, 64))
+    expected_second = original.standard_normal((1, 64))
+    np.testing.assert_array_equal(first.run(), expected_first)
+    np.testing.assert_array_equal(second.run(), expected_first)
+    first.reset()
+    np.testing.assert_array_equal(first.run(), expected_first)
+    np.testing.assert_array_equal(second.run(), expected_second)
+    # Setup, processing and reset must all leave the external RNG untouched.
+    untouched = np.random.Generator(bit_generator(71))
+    untouched.standard_normal(17)
+    np.testing.assert_array_equal(caller.standard_normal(64), untouched.standard_normal(64))
+    # Later caller draws and resets must not affect either block's private stream.
+    caller.bit_generator.state = bit_generator(999).state
+    np.testing.assert_array_equal(first.run(), expected_second)
+
+
+def test_awgn_spawned_seed_sequences_give_separate_replayable_streams():
+    blocks = [Awgn(snr_db=0, signal_power=1, seed=seed) for seed in np.random.SeedSequence(71).spawn(2)]
+    outputs = []
+    for block in blocks:
+        block.setup(context())
+        block.x = np.zeros((1, 64))
+        outputs.append(block.run().copy())
+        block.reset()
+        np.testing.assert_array_equal(block.run(), outputs[-1])
+    assert not np.array_equal(*outputs)
 
 
 @pytest.mark.parametrize("real", [False, True])

@@ -53,8 +53,8 @@ total variance equally across I and Q.
 
 ## Alignment and startup
 
-The testbench computes combined delay `D = (len(tx) + len(rx) - 2)/2` in
-oversampled samples and requires it to be an integer. Decimation phase is
+RX is the conjugate reverse of TX, so the combined delay is
+`D = len(tx) - 1` oversampled samples, always an integer. Decimation phase is
 `p = D % sps`; reference delay is `((D-p)//sps)*k` bits. The default is 96 samples,
 phase 0 and `12*k` bits. Prepending a zero to TX taps gives D=97, phase 1, still
 `12*k` bits. This is covered by a noiseless regression test.
@@ -99,6 +99,10 @@ The demo and regression tests share `agreement`:
 - `sigma = sqrt(p_prediction * (1-p_prediction) / N)`.
 - `PASS` when `abs(p_measured-p_prediction) <= 5*sigma`; otherwise `FAIL`.
 - `INCONCLUSIVE` when `N*p_prediction <= 25`, where the band can admit zero errors.
+
+An observed error with a zero prediction is always `FAIL`, checked before the
+inconclusive gate. A zero prediction with zero observed errors remains
+`INCONCLUSIVE`; floating-point underflow alone does not establish noiselessness.
 
 Ideal AWGN theory remains a separate column and dashed curve. The
 `prediction/theory` ratio reports the filter penalty, with no second verdict.

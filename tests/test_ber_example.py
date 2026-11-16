@@ -75,6 +75,26 @@ def test_agreement():
     assert agreement(round(n * (p + 5.01 * sigma)), n, p)[1] == "FAIL"
 
 
+@pytest.mark.parametrize("snr_db", [np.inf, 35.0])
+def test_zero_prediction_fails_on_observed_errors(snr_db):
+    predictor = FiniteFilterPrediction(bpsk(), rrc(12, 8, 0.35), 8)
+    prediction = predictor.ber(snr_db)
+    assert prediction == 0
+    assert agreement(5, 1000, prediction) == (math.inf, "FAIL")
+    assert agreement(0, 1000, prediction) == (0.0, "INCONCLUSIVE")
+
+
+def test_cli_fails_when_observed_errors_contradict_zero_prediction(monkeypatch, capsys):
+    from examples.ber import ber_tb
+
+    monkeypatch.setattr(FiniteFilterPrediction, "ber", lambda self, snr_db: 0.0)
+    monkeypatch.setattr(ber_tb, "plot_results", lambda *args, **kwargs: None)
+    assert main(["--start", "0", "--stop", "0", "--bit-cap", "4096"]) == 1
+    output = capsys.readouterr().out
+    assert output.count("FAIL") == 2
+    assert "INCONCLUSIVE" not in output
+
+
 @pytest.mark.parametrize("table", [bpsk(), qpsk()])
 @pytest.mark.parametrize("db,frames", [(0, 20), (4, 20), (8, 400)])
 def test_seeded_ber(table, db, frames):
@@ -204,7 +224,26 @@ def test_invalid_cli_arguments_are_usage_errors(args, capsys):
     assert "error:" in error and "Traceback" not in error
 
 
-@pytest.mark.parametrize("kwargs", [{"frame_size": 3}, {"bit_cap": 1}, {"error_target": -1}])
+def test_cli_checks_qpsk_budget_before_starting_bpsk(monkeypatch, capsys):
+    from examples.ber import ber_tb
+
+    # One BPSK frame compares 8 bits. QPSK requires two frames and compares 16.
+    bpsk_model = simulate(bpsk(), 0, frames=1, frame_size=32)
+    assert bpsk_model.counter.total[0] == 8
+
+    def unexpected_sweep(*args, **kwargs):
+        pytest.fail("CLI must validate both modulations before starting the sweep")
+
+    monkeypatch.setattr(ber_tb, "sweep", unexpected_sweep)
+    with pytest.raises(SystemExit) as exc:
+        main(["--frame-size", "32", "--bit-cap", "8"])
+    assert exc.value.code == 2
+    assert "bit cap" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"frame_size": 3}, {"bit_cap": 1}, {"error_target": -1}, {"frame_size": 32, "bit_cap": 8}]
+)
 def test_invalid_programmatic_sweep_remains_value_error(kwargs):
     with pytest.raises(ValueError):
         sweep([0], **kwargs)

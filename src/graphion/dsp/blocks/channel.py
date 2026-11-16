@@ -1,6 +1,7 @@
 """Sample-SNR additive white Gaussian noise."""
 
 import math
+from copy import deepcopy
 
 import numpy as np
 
@@ -8,7 +9,13 @@ from graphion.profile.numpy_frame import Array, Block, C, Control, In, N, Out, P
 
 
 class Awgn(Block):
-    """Add noise with total sample power signal_power / 10**(snr_db/10)."""
+    """Add noise with total sample power signal_power / 10**(snr_db/10).
+
+    Setup copies Generator/BitGenerator state into private storage. Blocks given
+    the same state produce identical noise; use independently seeded Generators
+    or distinct spawned SeedSequences when independent streams are needed.
+    Running or resetting the block never advances or rewinds the caller's RNG.
+    """
 
     snr_db: float = Control()
     signal_power: float = Param()
@@ -26,8 +33,8 @@ class Awgn(Block):
             self._scale()
         except ValueError as exc:
             raise SetupError(str(exc)) from exc
-        self._rng = np.random.default_rng(self.seed)
-        self._initial_rng_state = self._rng.bit_generator.state
+        self._rng = deepcopy(np.random.default_rng(self.seed))
+        self._initial_rng_state = deepcopy(self._rng.bit_generator.state)
         self._noise = np.empty((ctx.channels, ctx.n), ctx.dtype)
         self._real = self._noise.view(
             np.float32 if ctx.dtype.itemsize // (2 if ctx.dtype.kind == "c" else 1) == 4 else np.float64
