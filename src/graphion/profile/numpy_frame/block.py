@@ -762,19 +762,25 @@ class Block:
             raise ExecutionError(f"{self._identity()}: processing requires successful reset")
         if self._pending:
             raise ExecutionError(f"{self._identity()}: iteration already pending")
+        # Narrow call on every path so the checker sees a hook without a
+        # suppression. The split flag records which hook was selected.
         call = self._process_call
-        if call is None and self._output_call is None:
-            raise ExecutionError(f"{self._identity()}: no processing hook defined")
+        if call is None:
+            call = self._output_call
+            if call is None:
+                raise ExecutionError(f"{self._identity()}: no processing hook defined")
+            split = True
+        else:
+            split = False
         if self._run_missing:
             raise UnavailablePortError(f"{self._identity()}: unset inputs: {', '.join(self._run_missing)}")
         try:
-            if call is not None:
+            if not split:
                 if call.hook() is not None:
                     raise ExecutionError(f"{self._identity()}: processing hooks must return None")
             else:
-                call = self._output_call
                 self._pending = True
-                if call.hook() is not None:  # pyrefly: ignore[missing-attribute]  # run() rejected a missing output phase above.
+                if call.hook() is not None:
                     raise ExecutionError(f"{self._identity()}: processing hooks must return None")
                 update = self._update_call
                 if update is not None and update.hook() is not None:

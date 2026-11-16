@@ -99,6 +99,20 @@ def test_definition_errors_and_inherited_forms():
     assert Inherited().describe()["blocks"][0]["phases"] == {"output": [], "update": ["x"]}
 
 
+def test_block_without_hooks_reports_missing_hook_despite_unset_input():
+    class NoHook(Block):
+        x: Array = In(N)
+
+    block = configured(NoHook())
+    # Unset inputs count only through hook dependencies, so this block has
+    # none. The test pins the reported error, not the order of the guards.
+    with pytest.raises(ExecutionError, match="no processing hook"):
+        block.run()
+    # The guard fails before the hook failure handler, so no reset is required.
+    assert not block._requires_reset
+    assert not block._pending
+
+
 @pytest.mark.parametrize("hook", ["process", "output", "update"])
 def test_non_none_returns_require_reset(hook):
     methods: dict[str, object] = {hook: lambda self: 0}
