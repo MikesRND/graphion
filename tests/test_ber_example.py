@@ -75,6 +75,21 @@ def test_agreement():
     assert agreement(round(n * (p + 5.01 * sigma)), n, p)[1] == "FAIL"
 
 
+@pytest.mark.parametrize(
+    "errors,total,prediction,status",
+    [
+        (2, 1_000_000, 1e-9, "INCONCLUSIVE"),
+        (3, 1_000_000, 1e-9, "FAIL"),
+        (54, 2500, 0.01, "INCONCLUSIVE"),
+        (55, 2500, 0.01, "FAIL"),
+        (100, 10_000_000, 1e-12, "FAIL"),
+        (100, 10_000_000, 1e-300, "FAIL"),
+    ],
+)
+def test_low_count_agreement(errors, total, prediction, status):
+    assert agreement(errors, total, prediction)[1] == status
+
+
 @pytest.mark.parametrize("snr_db", [np.inf, 35.0])
 def test_zero_prediction_fails_on_observed_errors(snr_db):
     predictor = FiniteFilterPrediction(bpsk(), rrc(12, 8, 0.35), 8)

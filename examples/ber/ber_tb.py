@@ -93,6 +93,17 @@ class BerTestbench(Block):
         self.counter.run()
 
 
+def _poisson_upper_tail(errors, expected):
+    if errors == 0:
+        return 1.0
+    term = tail = math.exp(-expected + errors * math.log(expected) - math.lgamma(errors + 1))
+    while term > tail * 1e-15:
+        errors += 1
+        term *= expected / errors
+        tail += term
+    return tail
+
+
 def agreement(errors: int, total: int, prediction: float) -> tuple[float, str]:
     """Return deviation in predicted standard errors and a five-sigma verdict."""
     if total <= 0 or not 0 <= errors <= total or not 0 <= prediction <= 1:
@@ -103,7 +114,8 @@ def agreement(errors: int, total: int, prediction: float) -> tuple[float, str]:
     if prediction == 0 and errors > 0:
         return deviation, "FAIL"
     if total * prediction <= 25:
-        return deviation, "INCONCLUSIVE"
+        tail = _poisson_upper_tail(errors, total * prediction)
+        return deviation, "FAIL" if tail < 0.5 * math.erfc(5 / math.sqrt(2)) else "INCONCLUSIVE"
     return deviation, "PASS" if abs(delta) <= 5 * sigma else "FAIL"
 
 
@@ -281,7 +293,7 @@ def main(argv=None):
         parser.error("--rolloff must lie in [0, 1]")
     try:
         for k in (1, 2):
-            _, _, _, skip = _matched_alignment(args.span * args.sps + 1, args.sps, k)
+            _, _, _, skip = _matched_alignment(len(rrc(args.span, args.sps, args.rolloff)), args.sps, k)
             _frame_budget(args.bit_cap, args.bit_cap, args.frame_size, skip)
     except ValueError as exc:
         parser.error(str(exc))

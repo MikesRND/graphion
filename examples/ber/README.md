@@ -93,12 +93,13 @@ The full-period average approximates the exact transmitted subsequence; default
 low-SNR runs are shorter than one period. Their difference is small relative to
 the five-standard-error band. The band uses a binomial standard-error estimate;
 it is a diagnostic rather than an exact confidence guarantee for correlated errors.
+For `N*p_prediction <= 25`, excess errors fail when the Poisson upper tail is below the one-sided 5σ threshold.
 
 The demo and regression tests share `agreement`:
 
 - `sigma = sqrt(p_prediction * (1-p_prediction) / N)`.
 - `PASS` when `abs(p_measured-p_prediction) <= 5*sigma`; otherwise `FAIL`.
-- `INCONCLUSIVE` when `N*p_prediction <= 25`, where the band can admit zero errors.
+- `INCONCLUSIVE` when `N*p_prediction <= 25` unless the Poisson upper-tail check fails.
 
 An observed error with a zero prediction is always `FAIL`, checked before the
 inconclusive gate. A zero prediction with zero observed errors remains
