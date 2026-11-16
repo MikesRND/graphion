@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from graphion.dsp._validation import is_integer
 from graphion.profile.numpy_frame import Array
 
 
@@ -23,7 +24,7 @@ def rrc(span: int, sps: int, rolloff: float) -> Array:
     discrete filter remains a matched filter at every supported sps.
     """
     for name, value in (("span", span), ("sps", sps)):
-        if isinstance(value, bool) or not isinstance(value, (int, np.integer)) or value < 1:
+        if not is_integer(value, 1):
             raise ValueError(f"{name} must be a positive integer")
     if not np.isfinite(rolloff) or not 0 <= rolloff <= 1:
         raise ValueError("rolloff must lie in [0, 1]")

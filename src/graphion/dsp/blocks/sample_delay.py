@@ -1,22 +1,9 @@
-"""Delay blocks for the Python/NumPy frame Implementation Profile."""
+"""A sample delay of any nonnegative length."""
 
 import numpy as np
 
-from graphion.profile.numpy_frame import Array, Axis, Block, C, In, N, Out, Param, SetupError, State, needs_inputs
-
-
-class FrameDelay(Block):
-    x: Array = In(C, N)
-    y: Array = Out(C, N)
-    stream_ports = ("x", "y")
-    held: Array = State(C, N, default=0.0)
-
-    @needs_inputs(None)
-    def output(self):
-        np.copyto(self.y, self.held, casting="no")
-
-    def update(self):
-        np.copyto(self.held, self.x, casting="no")
+from graphion.dsp._validation import is_integer
+from graphion.profile.numpy_frame import Array, Axis, Block, C, In, N, Out, Param, SetupError, State
 
 
 class SampleDelay(Block):
@@ -29,7 +16,7 @@ class SampleDelay(Block):
     history: Array = State(C, Axis("delay"), default=0)
 
     def setup(self, ctx):
-        if isinstance(self.delay, bool) or not isinstance(self.delay, (int, np.integer)) or self.delay < 0:
+        if not is_integer(self.delay, 0):
             raise SetupError("delay must be a nonnegative integer")
         self._line = np.empty((ctx.channels, self.delay + ctx.n), ctx.dtype)
 

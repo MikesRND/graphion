@@ -49,7 +49,8 @@ from graphion.profile.numpy_frame import Array, Block, Ctx, In, Out
 ```
 
 `graphion.dsp.blocks` provides Gain, FrameDelay, OnePoleLowpass, FirInterpolate,
-FirDecimate, Prbs, SymbolMapper, SymbolDemapper, Awgn, SampleDelay and ErrorCounter.
+FirDecimate, Prbs, SymbolMapper, SymbolDemapper, Awgn, SampleDelay, ErrorCounter and
+ConstellationViewer.
 The [DSP library reference](docs/reference/dsp-library.md) covers these blocks,
 `stream_ctx`, FIR design, constellations and energy/SNR helpers. Its blocks
 support the Python/NumPy frame Implementation Profile.

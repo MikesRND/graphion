@@ -8,7 +8,8 @@ class BerDiagram:
 
     Placement is specific to BerTestbench; labels and edges come from its
     structural description. This is a topology view, not an execution trace.
-    Inspecting/updating the figure never advances the model.
+    Inspecting/updating the figure never advances the model. The optional
+    constellation viewer is placed beside the block it taps.
     """
 
     POSITIONS = {
@@ -21,6 +22,7 @@ class BerDiagram:
         "root/counter": (3.5, 0),
         "root/delay": (0, 0),
     }
+    OPTIONAL_POSITIONS = {"root/viewer": (14, 0)}
 
     def __init__(self, *, headless=False):
         self._headless = headless
@@ -52,7 +54,7 @@ class BerDiagram:
     def _label(record):
         name = record["path"].split("/")[-1]
         config = []
-        for key in ("order", "factor", "phase", "delay", "skip", "snr_db"):
+        for key in ("order", "factor", "phase", "delay", "depth", "skip", "snr_db"):
             value = (record["parameters"] | record["controls"]).get(key)
             if value is not None and value["kind"] == "literal":
                 literal = value["value"]
@@ -72,14 +74,21 @@ class BerDiagram:
         if description["schema_version"] != 2 or description["topology"] != "complete":
             raise ValueError("BER diagram needs a complete schema-v2 model description")
         blocks = description["blocks"][1:]
-        if {block["path"] for block in blocks} != self.POSITIONS.keys() or any(b["context"] is None for b in blocks):
+        paths = {block["path"] for block in blocks}
+        optional = paths - self.POSITIONS.keys()
+        if (
+            not self.POSITIONS.keys() <= paths
+            or not optional <= self.OPTIONAL_POSITIONS.keys()
+            or any(b["context"] is None for b in blocks)
+        ):
             raise ValueError("BER diagram needs a configured BerTestbench")
+        positions = self.POSITIONS | {path: self.OPTIONAL_POSITIONS[path] for path in optional}
         self.description = description
         self.axes.clear()
-        self.axes.set(xlim=(-1.6, 12.1), ylim=(-1.2, 4.4), aspect="equal")
+        self.axes.set(xlim=(-1.6, max(x for x, _ in positions.values()) + 1.6), ylim=(-1.2, 4.4), aspect="equal")
         self.axes.set_axis_off()
         for record in blocks:
-            x, y = self.POSITIONS[record["path"]]
+            x, y = positions[record["path"]]
             reference = record["path"] == "root/delay"
             self.axes.add_patch(
                 FancyBboxPatch(
@@ -99,8 +108,8 @@ class BerDiagram:
             self.axes.text(x, y - 0.42, outputs, ha="center", va="center", fontsize=8.5, linespacing=1.4)
         for edge in description["connections"]:
             source, destination = edge["source"], edge["destination"]
-            x1, y1 = self.POSITIONS[source["path"]]
-            x2, y2 = self.POSITIONS[destination["path"]]
+            x1, y1 = positions[source["path"]]
+            x2, y2 = positions[destination["path"]]
             horizontal = y1 == y2
             dx = np.sign(x2 - x1) * 1.38 if horizontal else 0
             dy = np.sign(y2 - y1) * 0.88 if not horizontal else 0
@@ -127,8 +136,12 @@ class BerDiagram:
             )
         self._model = model
 
-    def update(self, model, modulation, frame, frames):
-        """Show the actual point's model and completed-frame count; service GUI events."""
+    def update(self, model, modulation, frame, frames, *, service_events=True):
+        """Show the actual point's model and completed-frame count; service GUI events.
+
+        A caller whose own GUI event loop is already running passes
+        service_events=False, so that updating only requests a redraw.
+        """
         if self._closed:
             return
         if model is not self._model:
@@ -137,7 +150,7 @@ class BerDiagram:
         state = "Point complete" if frame == frames else "Running"
         self.status.set_text(f"{state} · frame {frame:,} / {frames:,} · {frame / frames:.0%}")
         self.figure.canvas.draw_idle()
-        if not self._headless:
+        if service_events and not self._headless:
             import matplotlib.pyplot as plt
 
             plt.show(block=False)

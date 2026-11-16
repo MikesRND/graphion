@@ -47,6 +47,7 @@ Gain, FrameDelay, OnePoleLowpass, Tuner, DDC and all new single-input stream
 processors list `("x", "y")`. Tone and Prbs list `("y",)`. MultiChannelDDC lists
 `("x", "y0", "y1", "y2")`. Spectrum lists only `("x",)`; PSD is not a time
 stream. ErrorCounter lists `("x", "ref")`; its statistics are not streams.
+ConstellationViewer lists only `("x",)`; its retained points are not a time stream.
 
 ## Block contracts
 
@@ -65,6 +66,7 @@ All stream shapes below have `C` independent channels; `N` describes the referen
 | `Awgn` | Control `snr_db`; Params `signal_power`, `seed=0`. Nominal sample-SNR additive Gaussian noise; `+inf` copies input. |
 | `SampleDelay` | Param `delay`, a nonnegative integer in samples. Zero-initialized, including delays longer than one frame; dtype-generic. |
 | `ErrorCounter` | Param `skip=0`; dtype-generic `x` and `ref`. Cumulative per-channel inequality counts: uint64 `total`, `errors`, and float64 `rate`, all `(C,)`. |
+| `ConstellationViewer` | Params `depth=1024`, `skip=0`; complex64/128 `x`. `points` `(C,depth)` holds the most recent samples per channel, oldest first, NaN where none is captured yet. |
 
 ### Binary sources and mapping
 
@@ -157,3 +159,15 @@ After a run, its rate is NaN if no element has yet been compared. Every run
 defines all three outputs, including frames entirely excluded by `skip`.
 Counts use uint64 State and reset to zero; output contents are unspecified
 after setup/reset until the next run. Only compared elements enter the BER denominator.
+
+ConstellationViewer captures samples for display; it does not draw, and
+adds no plotting dependency. Each run appends the frame to a retained history
+and keeps the newest `depth` samples, so `points` spans frames when `depth`
+exceeds the frame length. It excludes `skip` leading samples per channel, for
+example a filter's startup transient. Storage is fixed at setup at about
+`C * (3*depth + N)` samples (history, output and one workspace) and does not
+grow with run length. Its State `history` is the retained record, and a host
+may read it between runs: it is all NaN after setup and after reset, and
+`points` mirrors it after each run. As with ErrorCounter, `points` itself is
+unspecified after setup/reset until the next run, so a display that must start
+empty reads `history`.

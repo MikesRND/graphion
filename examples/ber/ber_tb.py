@@ -11,6 +11,7 @@ import numpy as np
 
 from graphion.dsp.blocks import (
     Awgn,
+    ConstellationViewer,
     ErrorCounter,
     FirDecimate,
     FirInterpolate,
@@ -44,7 +45,11 @@ def _frame_budget(target, bit_cap, frame_size, skip):
 
 
 class BerTestbench(Block):
-    """Bit-context testbench; optional tx_taps also exercises sampling phase."""
+    """Bit-context testbench; optional tx_taps also exercises sampling phase.
+
+    A positive viewer_depth adds a ConstellationViewer on the matched-filter
+    output. Zero, the default, builds no viewer.
+    """
 
     constellation: Array = Param()
     ebn0_db: float = Param(default=0.0)
@@ -54,8 +59,12 @@ class BerTestbench(Block):
     rolloff: float = Param(default=0.35)
     seed: object = Param(default=0)
     tx_taps: object = Param(default=None)
+    viewer_depth: int = Param(default=0)
 
     def build(self):
+        depth = self.viewer_depth
+        if isinstance(depth, bool) or not isinstance(depth, (int, np.integer)) or depth < 0:
+            raise ValueError("viewer_depth must be a nonnegative integer; zero builds no viewer")
         self.taps = rrc(self.span, self.sps, self.rolloff) if self.tx_taps is None else np.asarray(self.tx_taps)
         table = np.asarray(self.constellation)
         self.k = len(table).bit_length() - 1
@@ -77,6 +86,11 @@ class BerTestbench(Block):
         self.connect(self.demap, "y", self.counter, "x")
         self.connect(self.prbs, "y", self.delay, "x")
         self.connect(self.delay, "y", self.counter, "ref")
+        self.viewer = None
+        if self.viewer_depth:
+            # Decision inputs at symbol rate, excluding the startup the counter also skips.
+            self.viewer = self.child("viewer", ConstellationViewer(depth=self.viewer_depth, skip=self.skip // self.k))
+            self.connect(self.rx, "y", self.viewer, "x")
 
     def setup(self, ctx):
         c = ctx
@@ -85,12 +99,16 @@ class BerTestbench(Block):
             c = stream_ctx(stage, "y")
         self.counter.setup(c)
         self.delay.setup(stream_ctx(self.prbs, "y"))
+        if self.viewer is not None:
+            self.viewer.setup(stream_ctx(self.rx, "y"))
 
     def process(self):
         for stage in self._chain:
             stage.run()
         self.delay.run()
         self.counter.run()
+        if self.viewer is not None:
+            self.viewer.run()
 
 
 def _poisson_upper_tail(errors, expected):

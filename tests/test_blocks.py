@@ -23,7 +23,7 @@ from graphion import (
     StorageError,
     UnavailablePortError,
 )
-from graphion.dsp.blocks import FrameDelay, Gain, OnePoleLowpass
+from graphion.dsp.blocks import Gain
 from graphion.profile.numpy_frame import _storage as arrays
 
 
@@ -421,40 +421,6 @@ class BlockTests(unittest.TestCase):
 
             class ChangedKind(Gain):
                 gain: float = Param(default=2)
-
-    def test_frame_delay_call_semantics_and_reset(self):
-        b = FrameDelay()
-        b.setup(context(np.complex64))
-        b.x = np.full((2, 4), 1 + 2j, dtype=np.complex64)
-        np.testing.assert_array_equal(b.run(), 0)
-        b.x = np.full((2, 4), 3 + 4j, dtype=np.complex64)
-        np.testing.assert_array_equal(b.run(), 1 + 2j)
-        held = b.held
-        b.reset()
-        self.assertIs(held, b.held)
-        np.testing.assert_array_equal(b.run(), 0)
-
-    def test_one_pole_lowpass_frame_continuity_and_reset(self):
-        for dtype in (np.float32, np.float64, np.complex64, np.complex128):
-            with self.subTest(dtype=dtype):
-                signal = np.arange(16, dtype=np.float64).reshape(2, 8).astype(dtype)
-                if np.issubdtype(dtype, np.complexfloating):
-                    signal += 1j
-                expected = np.empty_like(signal)
-                history = np.zeros(2, dtype=dtype)
-                for i in range(8):
-                    history = 0.75 * history + 0.25 * signal[:, i]
-                    expected[:, i] = history
-                b = OnePoleLowpass(pole=0.75)
-                b.setup(context(dtype))
-                actual = []
-                for frame in (signal[:, :4], signal[:, 4:]):
-                    b.x = frame
-                    actual.append(b.run().copy())
-                np.testing.assert_allclose(np.concatenate(actual, axis=1), expected, rtol=1e-6)
-                b.reset()
-                b.x = signal[:, :4]
-                np.testing.assert_allclose(b.run(), expected[:, :4], rtol=1e-6)
 
 
 if __name__ == "__main__":

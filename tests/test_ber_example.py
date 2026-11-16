@@ -1,13 +1,15 @@
 import csv
 import math
+from fractions import Fraction
 
 import numpy as np
 import pytest
 
-from examples.ber.ber_tb import agreement, confidence_interval, main, plot_results, simulate, sweep
+from examples.ber.ber_tb import BerTestbench, agreement, confidence_interval, main, plot_results, simulate, sweep
 from examples.ber.prediction import FiniteFilterPrediction
 from graphion.dsp.communications import bpsk, bpsk_qpsk_ber, ebn0_to_snr_db, qpsk
 from graphion.dsp.filter_design import rrc
+from graphion.profile.numpy_frame import Ctx
 
 
 @pytest.mark.parametrize("table", [bpsk(), qpsk()])
@@ -262,3 +264,57 @@ def test_cli_checks_qpsk_budget_before_starting_bpsk(monkeypatch, capsys):
 def test_invalid_programmatic_sweep_remains_value_error(kwargs):
     with pytest.raises(ValueError):
         sweep([0], **kwargs)
+
+
+def test_viewer_is_absent_by_default():
+    tb = simulate(qpsk(), 4, frames=1)
+    assert tb.viewer is None
+    assert len(tb.describe()["blocks"]) == 9  # The root and the eight blocks of the curve model.
+    assert len(tb.describe()["connections"]) == 8
+
+
+@pytest.mark.parametrize("depth", [-1, 1.5, True])
+def test_invalid_viewer_depth(depth):
+    with pytest.raises(ValueError, match="viewer_depth"):
+        BerTestbench(constellation=qpsk(), viewer_depth=depth)
+
+
+@pytest.mark.parametrize("table", [bpsk(), qpsk()])
+def test_viewer_retains_matched_filter_output(table):
+    depth = 300  # Longer than a frame of either modulation's symbols.
+    tb = BerTestbench(constellation=table, ebn0_db=4, viewer_depth=depth)
+    tb.setup(Ctx(n=256, channels=1, rate=Fraction(tb.k * 1_000_000)))
+    assert tb.viewer.skip == tb.skip // tb.k == 24
+    received = []
+    for _ in range(6):
+        tb.run()
+        assert np.shares_memory(tb.viewer.x, tb.demap.x)  # Fan-out borrows the decision input.
+        received.append(tb.rx.y[0].copy())
+        kept = np.concatenate(received)[tb.viewer.skip :][-depth:]
+        expected = np.full(depth, np.nan, dtype=np.complex128)
+        expected[depth - len(kept) :] = kept
+        np.testing.assert_array_equal(tb.viewer.points[0], expected)
+    assert not np.isnan(tb.viewer.points).any()
+
+
+@pytest.mark.parametrize("table", [bpsk(), qpsk()])
+def test_noiseless_viewer_points_lie_near_ideal_symbols(table):
+    tb = simulate(table, 0, frames=3, snr_db=np.inf, viewer_depth=4096)
+    points = tb.viewer.points[0]
+    points = points[~np.isnan(points)]
+    assert len(points) >= 2048
+    distance = np.abs(points[:, None] - np.asarray(table)[None, :]).min(axis=1)
+    # The truncated RRC pair leaves residual ISI: about 0.0049 for BPSK and
+    # 0.0043 for QPSK at the default span. Points are near, not on, the ideal.
+    assert 0 < distance.max() < 0.01
+
+
+@pytest.mark.parametrize("table", [bpsk(), qpsk()])
+def test_viewer_does_not_change_measurements(table):
+    plain = simulate(table, 2, frames=4, seed=7)
+    viewed = simulate(table, 2, frames=4, seed=7, viewer_depth=512)
+    assert plain.counter.errors[0] > 0
+    for name in ("total", "errors", "rate"):
+        np.testing.assert_array_equal(getattr(viewed.counter, name), getattr(plain.counter, name))
+    np.testing.assert_array_equal(viewed.prbs.register, plain.prbs.register)
+    np.testing.assert_array_equal(viewed.rx.y, plain.rx.y)

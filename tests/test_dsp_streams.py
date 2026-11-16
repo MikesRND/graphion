@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from examples.blocks import DDC, MultiChannelDDC, Spectrum, Tone, Tuner
-from graphion.dsp.blocks import ErrorCounter, FirDecimate, Gain, Prbs, SymbolMapper
+from graphion.dsp.blocks import ConstellationViewer, ErrorCounter, FirDecimate, Gain, Prbs, SymbolMapper
 from graphion.dsp.communications import qpsk
 from graphion.dsp.streams import stream_ctx
 from graphion.profile.numpy_frame import Array, Block, C, Ctx, In, N, Out, SetupError
@@ -53,6 +53,14 @@ def test_outside_convention(block, port):
     block.setup(Ctx(rate=1, n=16, channels=1))
     with pytest.raises(SetupError, match="outside the stream-context convention"):
         stream_ctx(block, port)
+
+
+def test_constellation_viewer_points_are_not_a_stream():
+    viewer = ConstellationViewer(depth=8)
+    viewer.setup(Ctx(rate=3, n=16, channels=2, dtype=np.complex64))
+    assert stream_ctx(viewer, "x") == viewer.ctx
+    with pytest.raises(SetupError, match="outside the stream-context convention"):
+        stream_ctx(viewer, "points")
 
 
 def test_invalid_shapes_and_reference_selection():

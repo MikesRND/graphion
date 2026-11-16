@@ -24,7 +24,8 @@ alongside the BER plot when the sweep finishes. Closing it early does not stop
 the simulation or reopen it at the next point. This requires a GUI Matplotlib
 backend and is mutually exclusive with headless `--save`.
 
-The renderer in [diagram.py](diagram.py) uses a layout specific to this testbench.
+The renderer in [diagram.py](diagram.py) uses a layout specific to this testbench,
+including its optional constellation viewer.
 It is a model topology view, not an execution trace or an inferred schedule.
 It never advances the model. For a programmatic headless diagram, construct
 `BerDiagram(headless=True)`, call `update(tb, "QPSK", frame, frames)` on a
@@ -50,6 +51,43 @@ TX uses a unit-energy, 12-symbol-span root-raised-cosine filter, rolloff 0.35 an
 power is `mean(abs(table)**2) * sum(abs(tx)**2) / sps`, or 1/8 for the defaults.
 Eb/N0 converts to sample SNR by adding `10*log10(k/sps)`; complex noise shares its
 total variance equally across I and Q.
+
+## Live constellations
+
+```bash
+uv run python -m examples.ber.live
+uv run python -m examples.ber.live --diagram
+uv run python -m examples.ber.live --esn0-db 6 --ticks 60 --save constellations.png
+```
+
+[live.py](live.py) runs the same `BerTestbench` continuously and shows the
+received symbols: one BPSK and one QPSK model, side by side, with the ideal
+points marked. `BerTestbench(viewer_depth=...)` adds a
+[ConstellationViewer](../../docs/reference/dsp-library.md#block-contracts) on
+the matched-filter output, the samples the demapper decides on. It skips the
+same startup symbols the error counter excludes. The default `viewer_depth=0`
+builds no viewer, so the BER sweep above is unchanged and pays nothing for it.
+
+Both models run at one `--esn0-db` (default 10), so their clouds have the same
+spread. Each model receives `Eb/N0 = Es/N0 - 10*log10(k)`: QPSK runs 3.01 dB
+below BPSK in Eb/N0. Noise settings stay fixed for the whole run. Panel titles
+show each Eb/N0 and the running measured BER.
+
+Each tick advances both models by one frame of `--frame-size` bits and redraws
+the most recent `--depth` symbols (default 1024). The models advance exactly
+`--ticks` times (default 300); nothing runs before the first tick, and the
+panels stay empty until then because they read the viewer's retained history. The run then stops with the final constellations
+on screen. Closing the window ends the run early, and the runner prints how
+many ticks completed. `--save` performs the same ticks without a GUI and
+writes the final frame.
+
+`--diagram` also opens the model window described above, drawn by the same
+[diagram.py](diagram.py), for one of the two testbenches: `--diagram bpsk` or
+`--diagram qpsk` (QPSK if not named). It shows the viewer beside the `rx`
+block it taps and follows the tick count, refreshing a few times a second.
+Closing the diagram leaves the run going; closing the constellation window
+ends the run and closes the diagram too. It needs a GUI and cannot be
+combined with `--save`.
 
 ## Alignment and startup
 

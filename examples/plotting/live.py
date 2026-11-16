@@ -1,13 +1,14 @@
-"""Retained line plots driven by caller-supplied data getters and a step callback."""
+"""Retained line and marker plots driven by caller-supplied data getters and a step callback."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from math import isfinite
+from numbers import Integral
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from numpy.typing import ArrayLike
 
@@ -19,10 +20,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PlotSeries:
-    x: ArrayLike
+    """Fixed or getter-supplied x values with a y getter; a marker draws points without a line."""
+
+    x: ArrayLike | Callable[[], ArrayLike]
     y: Callable[[], ArrayLike]
     label: str | None = None
     color: str | None = None
+    marker: str | None = None
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,7 @@ class PlotPanel:
     ylim: tuple[float, float] | None = None
     position: tuple[int, int] | None = None
     span: tuple[int, int] = (1, 1)
+    aspect: Literal["auto", "equal"] | float | None = None
 
 
 class LivePlotter:
@@ -42,7 +47,9 @@ class LivePlotter:
 
     Panels default to a vertical stack. Explicit positions and spans are
     (row, column) pairs. Fixed limits are retained; omitted limits autoscale.
-    A step receives the frame index and elapsed wall-clock seconds.
+    A step receives the frame index and elapsed wall-clock seconds. With frames
+    set, a shown plotter steps exactly that many times and then holds the
+    final state; otherwise it runs until the window is closed.
     """
 
     def __init__(
@@ -54,9 +61,12 @@ class LivePlotter:
         interval_ms: float = 50,
         figsize: tuple[float, float] = (12, 7),
         headless: bool = False,
+        frames: int | None = None,
     ) -> None:
         if not panels or not isfinite(interval_ms) or interval_ms <= 0:
             raise ValueError("provide at least one panel and a positive finite update interval")
+        if frames is not None and (isinstance(frames, bool) or not isinstance(frames, Integral) or frames < 1):
+            raise ValueError("frames must be a positive integer or None")
         self.panels = tuple(panels)
         positions = [panel.position if panel.position is not None else (i, 0) for i, panel in enumerate(panels)]
         for panel, (row, column) in zip(panels, positions):
@@ -64,6 +74,7 @@ class LivePlotter:
                 raise ValueError("panels need series, nonnegative positions and positive spans")
         self.step = step
         self.interval_ms = interval_ms
+        self.frames = None if frames is None else int(frames)
         self._started_at: float | None = None
         self._animation: FuncAnimation | None = None
         self._headless = headless
@@ -91,10 +102,16 @@ class LivePlotter:
                 ax.set_xlim(*panel.xlim)
             if panel.ylim is not None:
                 ax.set_ylim(*panel.ylim)
+            if panel.aspect is not None:
+                ax.set_aspect(panel.aspect, adjustable="box")
             ax.grid(alpha=0.25)
             lines = tuple(
                 ax.plot([], [], label=series.label, color=series.color, linewidth=1)[0] for series in panel.series
             )
+            for series, line in zip(panel.series, lines):
+                if series.marker is not None:
+                    line.set_marker(series.marker)
+                    line.set_linestyle("none")
             if any(series.label for series in panel.series):
                 ax.legend()
             self.axes.append(ax)
@@ -104,7 +121,7 @@ class LivePlotter:
         """Read the latest data without advancing the model."""
         for panel, ax, lines in zip(self.panels, self.axes, self.lines):
             for series, line in zip(panel.series, lines):
-                line.set_data(series.x, series.y())
+                line.set_data(series.x() if callable(series.x) else series.x, series.y())
             if panel.xlim is None or panel.ylim is None:
                 ax.relim()
                 ax.autoscale_view(scalex=panel.xlim is None, scaley=panel.ylim is None)
@@ -126,7 +143,6 @@ class LivePlotter:
         if self._headless:
             raise ValueError("a headless plotter can save images but cannot open a window")
         import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
 
         if plt.get_backend().lower() == "agg":
             raise RuntimeError(
@@ -134,14 +150,23 @@ class LivePlotter:
                 "Run uv sync to install PySide6, or run the example with --save."
             )
         self._started_at = perf_counter()
+        self.animate()
+        plt.show(block=True)
+
+    def animate(self) -> FuncAnimation:
+        """Create and retain the animation; initialization reads data without stepping."""
+        from matplotlib.animation import FuncAnimation
+
         self._animation = FuncAnimation(
             self.figure,
             self.update,
+            frames=self.frames,
             init_func=self.refresh,
             interval=self.interval_ms,
+            repeat=self.frames is None,
             cache_frame_data=False,
         )
-        plt.show(block=True)
+        return self._animation
 
     def save(self, path: str | Path, *, dpi: float = 150) -> None:
         """Save the latest data without advancing the model or changing the global backend."""

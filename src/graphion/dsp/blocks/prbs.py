@@ -2,6 +2,7 @@
 
 import numpy as np
 
+from graphion.dsp._validation import is_integer
 from graphion.profile.numpy_frame import Array, Axis, Block, C, N, Out, Param, SetupError, State
 
 
@@ -21,7 +22,7 @@ class Prbs(Block):
 
     def setup(self, ctx):
         taps = {7: 6, 9: 5, 15: 14, 23: 18, 31: 28}
-        if isinstance(self.order, bool) or not isinstance(self.order, (int, np.integer)) or self.order not in taps:
+        if not is_integer(self.order) or self.order not in taps:
             raise SetupError("PRBS order must be one of 7, 9, 15, 23, 31")
         self._q = taps[self.order]
         seeds = np.asarray((1 << self.order) - 1 if self.seed is None else self.seed)
