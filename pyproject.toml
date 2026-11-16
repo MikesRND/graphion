@@ -27,7 +27,7 @@ dependencies = ["numpy>=2.0"]
 Homepage = "https://github.com/MikesRND/graphion"
 
 [dependency-groups]
-dev = ["matplotlib", "mypy", "PySide6", "pytest", "ruff"]
+dev = ["matplotlib", "mypy", "PySide6", "pytest", "ruff", "rust-just"]
 
 [tool.setuptools.dynamic]
 version = { attr = "graphion.__version__" }
@@ -43,6 +43,7 @@ graphion = ["py.typed"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+extend-exclude = [".claude/worktrees"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]

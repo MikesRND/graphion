@@ -35,22 +35,22 @@ jobs:
         run: uv python install
 
       - name: Install project and development dependencies
-        run: uv sync --locked
+        run: uv run --locked just sync
 
       - name: Check formatting
-        run: uv run --locked ruff format --check .
+        run: uv run --locked just fmt-check
 
       - name: Lint
-        run: uv run --locked ruff check .
+        run: uv run --locked just lint
 
       - name: Check types
-        run: uv run --locked mypy
+        run: uv run --locked just types
 
       - name: Test
-        run: uv run --locked pytest
+        run: uv run --locked just test
 
       - name: Check documentation
-        run: uv run --locked python docs/check.py
+        run: uv run --locked just docs
 
       - name: Build distributions
-        run: uv build
+        run: uv run --locked just build
