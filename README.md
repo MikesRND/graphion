@@ -59,79 +59,35 @@ algorithmic behavior across Implementation Profiles. Library names identify
 their application; supported Implementation Profiles belong to each
 implementation's contract.
 
-## Developer Instructions
+## Development
 
-### Developer Installation
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then run
-this command from the repository root:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the
+development gate from the repository root.
 
 ```bash
-uv sync --locked
+uv run --locked just check
 ```
 
-uv uses the Python 3.12 version in `.python-version`, creates `.venv`, and
-installs Graphion from `src/graphion` in editable mode along with the `dev`
-dependency group. `uv.lock` records the resolved dependencies. The development
-tools include pytest, mypy, Ruff, Matplotlib, and PySide6 for live plots.
-Run the following commands from the repository root; `uv run` selects the
-environment automatically.
+uv selects Python 3.12 from `.python-version` and installs Graphion in editable
+mode with the development tools from `uv.lock`. The gate checks formatting, lint,
+types, tests, and documentation.
 
-### Testing
+| Command | Purpose |
+| --- | --- |
+| `uv run --locked just` | List recipes. |
+| `uv run --locked just sync` | Install the locked project and development dependencies. |
+| `uv run --locked just fix` | Apply safe Ruff fixes and format Python. |
+| `uv run --locked just fmt-check` | Check formatting. |
+| `uv run --locked just lint` | Run Ruff lint rules. |
+| `uv run --locked just types` | Run Pyrefly, including the positive authoring examples. |
+| `uv run --locked just test` | Run pytest. Pass paths or pytest flags after `test` to focus the run. |
+| `uv run --locked just test tests/test_typing_check.py` | Verify the expected diagnostics for invalid authoring. |
+| `uv run --locked just docs` | Check documentation links, anchors, and Python examples. |
+| `uv run --locked just build` | Build the wheel and source distribution. |
+| `uv run --locked just ci` | Run the development gate and build distributions. |
 
-Run pytest:
+The [programming reference](docs/reference/index.md) defines the normative API.
+Start with the [documentation index](docs/index.md) for the quickstart and guides.
 
-```bash
-uv run --locked pytest
-```
-
-### Coding Standards
-
-Format code and apply safe lint fixes:
-
-```bash
-uv run --locked ruff check --fix .
-uv run --locked ruff format .
-```
-
-Check formatting, lint, and types:
-
-```bash
-uv run --locked ruff format --check .
-uv run --locked ruff check .
-uv run --locked mypy
-```
-
-Pytest also checks that invalid dimension expressions and dependency decorator
-arguments are rejected by mypy.
-To run that check on its own:
-
-```bash
-uv run --locked python -m tests.check_typing
-```
-
-### Distribution Builds
-
-Build the wheel and source distribution:
-
-```bash
-uv build
-```
-
-### Documentation
-
-Start at the [documentation index](docs/index.md). The
-[programming reference](docs/reference/index.md) defines the normative API; the
-quick start and consolidated user guide are intentionally brief.
-
-Check documentation links, anchors and Python examples:
-
-```bash
-uv run --locked python docs/check.py
-```
-
-### Continuous Integration
-
-GitHub Actions runs the formatting, lint, typing, test, documentation, and
-distribution-build checks above in one Ubuntu/Python 3.12 job on pushes and
-pull requests. Plotting tests use Matplotlib's headless Agg backend.
+GitHub Actions runs the same checks and distribution build on Ubuntu with
+Python 3.12. Plotting tests use Matplotlib's headless Agg backend.
