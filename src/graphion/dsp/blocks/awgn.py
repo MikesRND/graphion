@@ -33,10 +33,14 @@ class Awgn(Block):
             self._scale()
         except ValueError as exc:
             raise SetupError(str(exc)) from exc
-        self._rng = deepcopy(np.random.default_rng(self.seed))
+        self._rng = deepcopy(
+            np.random.default_rng(
+                self.seed  # pyrefly: ignore[bad-argument-type]  # NumPy validates arbitrary seed objects.
+            )
+        )
         self._initial_rng_state = deepcopy(self._rng.bit_generator.state)
         self._noise = np.empty((ctx.channels, ctx.n), ctx.dtype)
-        self._real = self._noise.view(
+        self._real: Array = self._noise.view(
             np.float32 if ctx.dtype.itemsize // (2 if ctx.dtype.kind == "c" else 1) == 4 else np.float64
         )
 

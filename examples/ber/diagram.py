@@ -1,6 +1,11 @@
 """A host-side diagram of the running BER model, drawn from describe()."""
 
+from typing import TYPE_CHECKING, cast
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.backend_bases import FigureManagerBase
 
 
 class BerDiagram:
@@ -41,7 +46,8 @@ class BerDiagram:
             if plt.get_backend().lower() in ("agg", "svg", "pdf", "ps", "pgf", "template", "cairo"):
                 raise RuntimeError("--diagram needs a GUI Matplotlib backend and a graphical desktop")
             self.figure = plt.figure(figsize=(15, 6.5))
-            self.figure.canvas.manager.set_window_title("Graphion · BER model")
+            manager = cast("FigureManagerBase", self.figure.canvas.manager)
+            manager.set_window_title("Graphion · BER model")
         self.axes = self.figure.add_axes((0.02, 0.14, 0.96, 0.76))
         self.title = self.figure.suptitle("BerTestbench · model diagram", fontsize=16)
         self.status = self.figure.text(0.5, 0.06, "", ha="center", fontsize=11)

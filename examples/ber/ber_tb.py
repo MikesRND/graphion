@@ -6,6 +6,7 @@ import math
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from time import perf_counter
+from typing import cast
 
 import numpy as np
 
@@ -71,7 +72,7 @@ class BerTestbench(Block):
         rx_taps = self.taps.conj()[::-1].copy()
         self.sample_delay, self.phase, self.bit_delay, self.skip = _matched_alignment(len(self.taps), self.sps, self.k)
         power = float(np.mean(np.abs(table) ** 2) * np.sum(np.abs(self.taps) ** 2) / self.sps)
-        snr = float(ebn0_to_snr_db(self.ebn0_db, self.k, self.sps)) if self.snr_db is None else self.snr_db
+        snr = float(ebn0_to_snr_db(self.ebn0_db, self.k, self.sps)) if self.snr_db is None else cast(float, self.snr_db)
         self.prbs = self.child("prbs", Prbs())
         self.mapper = self.child("mapper", SymbolMapper(constellation=table))
         self.tx = self.child("tx", FirInterpolate(taps=self.taps, factor=self.sps))
@@ -270,6 +271,8 @@ def plot_results(results, *, save=None):
     if save:
         fig.savefig(save, dpi=160)
     else:
+        import matplotlib.pyplot as plt
+
         plt.show()
         plt.close(fig)
 
