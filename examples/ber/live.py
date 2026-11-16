@@ -21,7 +21,7 @@ from .ber_tb import BerTestbench
 
 
 def make_models(esn0_db=10.0, *, depth=1024, frame_size=4096, seed=0, **kwargs):
-    """Configured viewer-equipped testbenches by modulation name, at equal Es/N0.
+    """Configure viewer-equipped testbenches by modulation name at equal Es/N0.
 
     Eb/N0 = Es/N0 - 10 log10(bits per symbol), so QPSK runs 3.01 dB below BPSK.
     """

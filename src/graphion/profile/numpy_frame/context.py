@@ -12,6 +12,8 @@ from graphion.errors import SetupError
 
 @dataclass(frozen=True)
 class Ctx:
+    """Immutable context for a Python/NumPy frame block."""
+
     rate: int | float | Fraction | np.integer | np.floating
     n: int
     channels: int
@@ -49,4 +51,5 @@ class Ctx:
         object.__setattr__(self, "dtype", dtype)
 
     def replace(self, **changes):
+        """Return a validated context with the supplied fields replaced."""
         return replace(self, **changes)

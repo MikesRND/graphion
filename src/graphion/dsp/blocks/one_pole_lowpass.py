@@ -6,6 +6,8 @@ from graphion.profile.numpy_frame import Array, Block, C, In, N, Out, Param, Set
 
 
 class OnePoleLowpass(Block):
+    """Apply a recursive single-pole low-pass filter."""
+
     pole: float = Param(default=0.9)
     x: Array = In(C, N)
     y: Array = Out(C, N)

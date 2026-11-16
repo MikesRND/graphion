@@ -288,6 +288,7 @@ class Block:
             self._in_build_hook = False
 
     def build(self):
+        """Validate and commit the lifecycle root's topology without a context."""
         if not self._in_build_hook:
             return self._build()
 
@@ -310,6 +311,7 @@ class Block:
 
     @property
     def ctx(self):
+        """Return the context assigned during local setup."""
         if self._ctx is None:
             error = SetupError(f"{self._identity()}: ctx is unavailable before setup")
             # Mark only framework context lookup errors for axis diagnostics.
@@ -323,10 +325,12 @@ class Block:
 
     @property
     def children(self):
+        """Return a read-only view of registered children in registration order."""
         return self._children_view
 
     @property
     def connections(self):
+        """Return immutable connection records in declaration order."""
         return self._connections
 
     def describe(self):
@@ -336,6 +340,7 @@ class Block:
         return _describe.describe(self)
 
     def port_spec(self, name: str) -> PortSpec:
+        """Return the resolved shape and dtype of a locally configured port."""
         field = self.schema.get(name)
         if field is None or field.kind not in ("In", "Out"):
             raise SetupError(f"{self._identity()}.{name}: not a port")
@@ -373,6 +378,7 @@ class Block:
                     yield node, name, source, port
 
     def child[B: Block](self, name: str, block: B) -> B:
+        """Register a direct lifecycle child and return that child."""
         if self._tree.failed:
             raise RegistrationError("cannot register children after setup failure; construct a new tree")
         if self._phase != "new":
@@ -402,6 +408,7 @@ class Block:
         return block
 
     def connect(self, source_block, source_port, destination_block, destination_port):
+        """Record a connection between ports of the owner or its direct children."""
         if self._tree.failed:
             raise WiringError("cannot record connections after setup failure; construct a new tree")
         if self._phase != "new":
@@ -562,6 +569,7 @@ class Block:
             reader._refresh_calls()
 
     def bind_output(self, name, array):
+        """Supply caller-owned storage for a direct output before layout is resolved."""
         field = self.schema.get(name)
         if field is None or field.kind != "Out":
             raise StorageError(f"{name}: not an output")
@@ -625,6 +633,7 @@ class Block:
         return tuple(shape), dtype
 
     def setup(self, ctx):
+        """Configure the block with a context, including its declared storage."""
         if not self._in_setup_hook:
             return self._setup(ctx, None)
 
@@ -703,6 +712,7 @@ class Block:
             raise
 
     def reset(self):
+        """Restore declared State and run reset hooks on the configured subtree."""
         if not self._in_reset_hook:
             return self._reset(None)
 
@@ -742,6 +752,7 @@ class Block:
                     node._reset_prepared = False
 
     def run(self) -> Array | Any:
+        """Run one full iteration and return the cached output result."""
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
@@ -773,6 +784,7 @@ class Block:
         return self._result
 
     def run_output(self) -> Array | Any:
+        """Evaluate the output phase of a split block and return the cached result."""
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
@@ -794,6 +806,7 @@ class Block:
         return self._result
 
     def run_update(self):
+        """Complete the pending update phase of a split block."""
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
