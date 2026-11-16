@@ -1,5 +1,6 @@
 """Runtime compatibility of the two supported Array annotations."""
 
+from types import GenericAlias
 from typing import get_args, get_origin
 
 import numpy as np
@@ -57,13 +58,14 @@ def test_description_does_not_compare_legacy_alias_arguments():
 
     spelling = NDArray[np.generic]
     origin, args = get_origin(spelling), get_args(spelling)
+    assert origin is not None
     model = type(
         "Model",
         (Block,),
         {
             "__annotations__": {
-                "equivalent": origin[args],
-                "unusual": origin[(*args[:-1], EqualityForbidden())],
+                "equivalent": GenericAlias(origin, args),
+                "unusual": GenericAlias(origin, (*args[:-1], EqualityForbidden())),
             },
             "equivalent": Param(default=np.ones(2)),
             "unusual": Param(default=np.ones(2)),

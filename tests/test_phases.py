@@ -101,7 +101,7 @@ def test_definition_errors_and_inherited_forms():
 
 @pytest.mark.parametrize("hook", ["process", "output", "update"])
 def test_non_none_returns_require_reset(hook):
-    methods = {hook: lambda self: 0}
+    methods: dict[str, object] = {hook: lambda self: 0}
     if hook == "update":
         methods["output"] = lambda self: None
     cls = type("InvalidReturn", (Block,), methods)

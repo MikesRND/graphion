@@ -1,4 +1,5 @@
 import math
+from typing import TypedDict
 
 import numpy as np
 import pytest
@@ -35,6 +36,7 @@ def test_equal_esn0_and_constant_noise_settings():
     assert models["BPSK"].ebn0_db - models["QPSK"].ebn0_db == pytest.approx(10 * math.log10(2))
     settings = {}
     for name, model in models.items():
+        assert model.viewer is not None
         assert model.viewer.depth == 32
         assert model.chan.snr_db == pytest.approx(float(esn0_to_snr_db(7.0, model.sps)))
         settings[name] = (model.chan.snr_db, model.chan.signal_power, model.ebn0_db)
@@ -153,7 +155,19 @@ def test_diagram_option_shows_one_model_and_closes_with_the_plot(option, name, m
         created.append(BerDiagram(headless=True))
         return created[-1]
 
-    observed = {}
+    WindowObservation = TypedDict(
+        "WindowObservation",
+        {
+            "at start": str,
+            "at end": str,
+            "title": str,
+            "labels": list[str],
+            "open during run": bool,
+            "closed with the plot": bool,
+        },
+        total=False,
+    )
+    observed: WindowObservation = {}
 
     def show(plotter):
         view = created[0]

@@ -15,7 +15,7 @@ lint:
     uv run --locked ruff check .
 
 types:
-    uv run --locked mypy
+    uv run --locked python -m pyrefly check --config pyproject.toml
 
 test *args:
     uv run --locked pytest {{args}}

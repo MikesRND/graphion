@@ -1,15 +1,19 @@
 from graphion import Array, Block, N, Out, Param, needs_inputs
+from graphion.dsp.blocks import Gain
 
 
 class BadLiteral(Block):
-    y: Array = Out(N * (3 / 2))  # error: operator
+    y: Array = Out(N * (3 / 2))  # error: unsupported-operation
 
 
 class BadParam(Block):
     ratio: float = Param(default=1.5)
-    y: Array = Out(N * ratio)  # error: operator
+    y: Array = Out(N * ratio)  # error: unsupported-operation
 
 
-needs_inputs()  # error: call-overload
-needs_inputs(None, "x")  # error: call-overload
-needs_inputs("x", None)  # error: call-overload
+needs_inputs()  # error: no-matching-overload
+needs_inputs(None, "x")  # error: bad-argument-type
+needs_inputs("x", None)  # error: bad-argument-type
+
+Gain().run().not_an_array_attribute()  # error: missing-attribute
+Block().child("amp", Gain()).gaim  # error: missing-attribute

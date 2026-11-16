@@ -3,6 +3,7 @@ import types
 import unittest
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -53,6 +54,7 @@ class DeclarationTests(unittest.TestCase):
                         "value": Param(default=default.copy()),
                     },
                 )
+                assert issubclass(cls, Block)
                 records.append(cls.schema["value"])
             left, right = records
             self.assertIs(left == left, True)
@@ -155,8 +157,9 @@ class DeclarationTests(unittest.TestCase):
                 misuse(Model)(**kwargs)
         with self.assertRaisesRegex(TypeError, "positional argument"):
             misuse(Model)(2)
-        model = Model(factor=2, gain="stored without coercion")
-        self.assertEqual(model.gain, "stored without coercion")
+        raw_gain = "stored without coercion"
+        model = Model(factor=2, gain=cast(float, raw_gain))
+        self.assertIs(model.gain, raw_gain)
         with self.assertRaises(ParamError):
             model.factor = 3
 
@@ -250,11 +253,14 @@ class DeclarationTests(unittest.TestCase):
                 np.testing.assert_array_equal(model.c, [3.0, 4.0])
         for value in ([], [[1, 2], [3, 4]], 1.5, np.array([1 + 2j])):
             with self.subTest(valid=value):
-                model.c = value
+                # The assignment API accepts array-like inputs, and the annotation describes the stored array.
+                setattr(model, "c", value)
                 np.testing.assert_array_equal(model.c, np.asarray(value))
                 self.assertFalse(model.c.dtype.hasobject)
         # Mutating a declaration's default does not bypass construction checks.
-        Model.schema["p"].default.append([3, 4])
+        default = Model.schema["p"].default
+        assert isinstance(default, list)
+        default.append([3, 4])
         with self.assertRaisesRegex(ParamError, "p"):
             Model()
 

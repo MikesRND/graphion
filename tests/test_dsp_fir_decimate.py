@@ -111,7 +111,7 @@ def test_decimator_validation(kwargs):
 @pytest.mark.parametrize("phase", [-1, 2, True, 0.5])
 def test_bad_decimation_phase(phase):
     with pytest.raises(SetupError):
-        FirDecimate(taps=[1], factor=2, phase=phase).setup(Ctx(rate=1, n=8, channels=1))
+        FirDecimate(taps=np.array([1]), factor=2, phase=phase).setup(Ctx(rate=1, n=8, channels=1))
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])

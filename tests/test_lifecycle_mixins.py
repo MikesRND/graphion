@@ -2,18 +2,28 @@
 
 import unittest
 from functools import wraps
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from graphion import Array, Block, DeclarationError, N, Out, Param, SetupError, State
 from tests.test_connections import context
 
+# The mixins use Block members supplied by their concrete, composed test classes.
+if TYPE_CHECKING:
+    _HookBase = Block
+else:
+    _HookBase = object
+
 
 class LifecycleMixinTests(unittest.TestCase):
     def test_mixin_hooks_without_super_and_inherited_wrappers(self):
         events = []
 
-        class Hooks:
+        class Hooks(_HookBase):
+            count: int
+            memory: Array
+
             def build(self):
                 events.append("build")
                 self.worker = self.child("worker", Block())
@@ -77,7 +87,9 @@ class LifecycleMixinTests(unittest.TestCase):
     def test_cooperative_mixin_hooks_reach_framework_base(self):
         events = []
 
-        class Hooks:
+        class Hooks(_HookBase):
+            count: int
+
             def build(self):
                 super().build()
                 events.append("build")
@@ -132,7 +144,12 @@ class LifecycleMixinTests(unittest.TestCase):
                 events.append("base reset")
                 self.count += 1
 
-        class Hooks:
+        if TYPE_CHECKING:
+            HookBase = Base
+        else:
+            HookBase = object
+
+        class Hooks(HookBase):
             def build(self):
                 super().build()
                 events.append("mixin build")

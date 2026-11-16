@@ -229,7 +229,9 @@ class BuildTests(unittest.TestCase):
                 model.setup(ctx)
             snapshot = model.describe()
             self.assertEqual(snapshot["topology"], "complete")
-            self.assertIsNone(snapshot["blocks"][0]["storage"])
+            blocks = snapshot["blocks"]
+            assert isinstance(blocks, list)
+            self.assertIsNone(blocks[0]["storage"])
             self.assertTrue(model._tree.failed)
             self.assertIsNone(model.build())
             self.assertEqual(model.describe(), snapshot)
@@ -267,11 +269,13 @@ class BuildTests(unittest.TestCase):
         parent.setup(context())
         parent.x = np.arange(4.0)
         for node in subtree._walk():
+            assert isinstance(node, (Relay, Scale))
             self.assertIs(node.x, parent.x)
         np.testing.assert_array_equal(subtree.run(), np.arange(4.0) * 2)
         replacement = np.full(4, 3.0)
         parent.x = replacement
         for node in subtree._walk():
+            assert isinstance(node, (Relay, Scale))
             self.assertIs(node.x, parent.x)
         np.testing.assert_array_equal(subtree.run(), replacement * 2)
 

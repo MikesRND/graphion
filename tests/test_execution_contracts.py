@@ -63,8 +63,7 @@ class ExecutionContractTests(unittest.TestCase):
         # This guards collection from input/schema traversal and cached returns;
         # it is not a general heap-allocation detector for author numerical code.
         bindings = model._values
-        model._values = LookupOnly(bindings)
-        try:
+        with patch.object(model, "_values", LookupOnly(bindings)):
             with (
                 patch.object(Pair, "schema", LookupOnly(Pair.schema)),
                 patch.object(arrays, "validate", side_effect=AssertionError("per-run validation")),
@@ -78,8 +77,6 @@ class ExecutionContractTests(unittest.TestCase):
                     self.assertIs(current[1], result[1])
                     np.testing.assert_array_equal(current[0], value + 1)
                     np.testing.assert_array_equal(current[1], value - 1)
-        finally:
-            model._values = bindings
         self.assertEqual(model.calls, 4)
         model.reset()
         self.assertIs(model.run(), result)
@@ -274,7 +271,7 @@ class ExecutionContractTests(unittest.TestCase):
         failure = ValueError("base author setup failed")
 
         class Base(Block):
-            def setup(self, ctx):
+            def setup(self, ctx) -> None:
                 events.append("base")
                 raise failure
 

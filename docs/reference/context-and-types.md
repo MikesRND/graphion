@@ -19,6 +19,8 @@ Implementation Profile; they are not universal properties of every block model.
 | `dtype` | Numeric NumPy dtype; defaults to `np.float64`. |
 | `xp` | Author-facing array namespace; defaults to NumPy. This Implementation Profile supports NumPy only. |
 
+`n` and `channels` are annotated as `int`, although the runtime also accepts NumPy integer scalars.
+
 `rate` accepts Python `int`, `float` and `fractions.Fraction` values, plus NumPy
 integer and floating scalars. NumPy scalars become Python `int` or `float` values;
 conversion of extended-precision NumPy floats may round to Python float precision.

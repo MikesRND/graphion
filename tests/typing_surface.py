@@ -1,11 +1,7 @@
-"""Static typing surface checked by ordinary mypy; not collected as a test module.
-
-The check functions are annotated so mypy checks their bodies without
-`check_untyped_defs`. They are never called.
-"""
+"""Positive authoring examples checked by Pyrefly."""
 
 from fractions import Fraction
-from typing import assert_type
+from typing import Any, assert_type
 
 import numpy as np
 
@@ -169,3 +165,45 @@ def dependency_typing_checks() -> None:
     independent: Callable[[], None] = TypedConstant().output
     assert_type(explicit(), None)
     assert_type(independent(), None)
+
+
+class Parent(Block):
+    def build(self):
+        self.amp = self.child("amp", TypedGain())
+
+    def process(self):
+        self.amp.run()
+
+
+class Pair(Block):
+    x: Array = In(N)
+    first: Array = Out(N)
+    second: Array = Out(N)
+
+    @profile.needs_inputs("x")
+    def output(self):
+        self.first[:] = self.x * 0.5
+        self.second[:] = self.x + self.first
+
+
+class Sink(Block):
+    def process(self):
+        pass
+
+
+def execution_typing_checks() -> None:
+    parent = Parent()
+    assert_type(parent.amp, TypedGain)
+    assert_type(parent.amp.gain, float)
+    assert_type(parent.amp.y, Array)
+    result = parent.amp.run()
+    assert_type(result, Array | Any)
+    result.copy()
+    result[0]
+    len(result)
+    pair = Pair()
+    first, second = pair.run()
+    split = pair.run_output()
+    assert_type(split, Array | Any)
+    assert split is not None
+    assert Sink().run() is None

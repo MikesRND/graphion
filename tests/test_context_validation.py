@@ -44,7 +44,8 @@ class Copy(Block):
 
 class ContextValidationTests(unittest.TestCase):
     def test_context_is_immutable_and_replace_preserves_other_fields(self):
-        original = Ctx(rate=np.float64(12.5), n=np.int64(4), channels=np.int32(2), dtype="complex64")
+        rate, n, channels = np.float64(12.5), np.int64(4), np.int32(2)
+        original = Ctx(rate, n, channels, "complex64")  # pyrefly: ignore[bad-argument-type]  # NumPy sizes are valid.
         derived = original.replace(rate=25, n=8)
         self.assertIsNot(original, derived)
         self.assertEqual((original.rate, original.n), (12.5, 4))
@@ -265,7 +266,7 @@ class ContextValidationTests(unittest.TestCase):
             empty: Array = Out(0, N)
 
             def setup(self, ctx):
-                self.width = np.int64(5)
+                self.width: int | np.integer = np.int64(5)
 
         block = Shaped()
         block.setup(context())

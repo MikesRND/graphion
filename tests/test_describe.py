@@ -6,7 +6,7 @@ import unittest
 import weakref
 from contextlib import ExitStack
 from pathlib import Path
-from typing import get_args, get_origin
+from typing import Any, cast, get_args, get_origin
 from unittest.mock import patch
 
 import numpy as np
@@ -412,8 +412,9 @@ class DescriptionTests(unittest.TestCase):
                 raise AssertionError("description represented annotation argument")
 
         arguments = get_args(Array)
-        equivalent = get_origin(Array)[arguments]
-        opaque = get_origin(Array)[(*arguments[:-1], EqualityForbidden())]
+        origin = cast(Any, get_origin(Array))
+        equivalent = origin[arguments]
+        opaque = origin[(*arguments[:-1], EqualityForbidden())]
 
         class Model(Block):
             values: equivalent = Param(default=np.ones(2))

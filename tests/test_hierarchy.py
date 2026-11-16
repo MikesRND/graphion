@@ -115,7 +115,7 @@ class HierarchyTests(unittest.TestCase):
                 node.child("late", Block())
 
     def test_recursive_setup_and_reset_order_with_explicit_context(self):
-        events = []
+        events: list[tuple[str, str, int] | tuple[str, str, int, int]] = []
 
         class Leaf(Block):
             label: str = Param()
@@ -238,7 +238,7 @@ class HierarchyTests(unittest.TestCase):
                 self.worker = self.child("worker", Worker())
 
         class Root(Block):
-            supplied: Block = Param()
+            supplied: Branch = Param()
 
             def build(self):
                 self.branch = self.child("branch", self.supplied)

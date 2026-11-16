@@ -27,7 +27,7 @@ dependencies = ["numpy>=2.0"]
 Homepage = "https://github.com/MikesRND/graphion"
 
 [dependency-groups]
-dev = ["matplotlib", "mypy", "PySide6", "pytest", "ruff", "rust-just"]
+dev = ["matplotlib", "pyrefly", "PySide6", "pytest", "ruff", "rust-just"]
 
 [tool.setuptools.dynamic]
 version = { attr = "graphion.__version__" }
@@ -54,11 +54,10 @@ testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
 pythonpath = ["."]
 
-[tool.mypy]
-follow_imports = "normal"
-strict_optional = true
-files = ["src/graphion", "tests", "examples"]
+[tool.pyrefly]
+project-includes = ["src", "tests", "examples", "docs/check.py"]
+search-path = ["src", "."]
+python-version = "3.12"
 
-[[tool.mypy.overrides]]
-module = ["matplotlib", "matplotlib.*"]
-ignore_missing_imports = true
+[tool.pyrefly.errors]
+unused-ignore = "error"

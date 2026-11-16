@@ -15,7 +15,9 @@ def code(path, heading=None):
     text = (DOCS / path).read_text()
     if heading:
         text = text.split(heading + "\n", 1)[1]
-    return re.search(r"```python\n(.*?)```", text, re.S)[1]
+    match = re.search(r"```python\n(.*?)```", text, re.S)
+    assert match is not None, path
+    return match[1]
 
 
 def reference(heading):

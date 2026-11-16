@@ -24,8 +24,8 @@ from tests.test_connections import Scale, Source, context
 from tests.typing_helpers import misuse
 
 
-class Relay(Block):
-    target: Block = Param()
+class Relay[B: Block](Block):
+    target: B = Param()
     x: Array = In(N)
     y: Array = Out(N)
 
@@ -403,7 +403,7 @@ class FinalizationTests(unittest.TestCase):
                 node.run()
 
     def test_scalar_control_forwarding_needs_only_explicit_execution(self):
-        class Controlled(Relay):
+        class Controlled(Relay[Scale]):
             gain: float = Control(default=1.0)
 
             def process(self):
