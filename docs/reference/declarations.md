@@ -174,7 +174,10 @@ unsupported; use types available when the block class is defined. `describe()` u
 resolved value type and never reevaluates annotations or axis properties.
 
 Ports and array State accept `Array`, the legacy spelling
-`numpy.typing.NDArray[np.generic]`, and aliases resolving to either of them.
+`numpy.typing.NDArray[np.generic]`, and names bound to either of them by plain
+assignment, such as `Samples = Array`. PEP 695 `type` aliases, such as
+`type Samples = Array`, are not supported and raise `DeclarationError` at class
+definition.
 A scalar annotation on array State, or `Array` on zero-axis scalar State,
 raises `DeclarationError` at class definition.
 Scalar State annotations must designate a Python numeric/bool scalar or NumPy

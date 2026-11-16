@@ -160,7 +160,7 @@ class DeclarationTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "positional argument"):
             misuse(Model)(2)
         raw_gain = "stored without coercion"
-        model = Model(factor=2, gain=cast(float, raw_gain))
+        model = Model(factor=2, gain=raw_gain)  # pyrefly: ignore[bad-argument-type]  # Construction stores values unchecked.
         self.assertIs(model.gain, raw_gain)
         with self.assertRaises(ParamError):
             model.factor = 3

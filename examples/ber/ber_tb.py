@@ -6,7 +6,6 @@ import math
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 from time import perf_counter
-from typing import cast
 
 import numpy as np
 
@@ -72,11 +71,13 @@ class BerTestbench(Block):
         rx_taps = self.taps.conj()[::-1].copy()
         self.sample_delay, self.phase, self.bit_delay, self.skip = _matched_alignment(len(self.taps), self.sps, self.k)
         power = float(np.mean(np.abs(table) ** 2) * np.sum(np.abs(self.taps) ** 2) / self.sps)
-        snr = float(ebn0_to_snr_db(self.ebn0_db, self.k, self.sps)) if self.snr_db is None else cast(float, self.snr_db)
+        snr = float(ebn0_to_snr_db(self.ebn0_db, self.k, self.sps)) if self.snr_db is None else self.snr_db
         self.prbs = self.child("prbs", Prbs())
         self.mapper = self.child("mapper", SymbolMapper(constellation=table))
         self.tx = self.child("tx", FirInterpolate(taps=self.taps, factor=self.sps))
-        self.chan = self.child("chan", Awgn(snr_db=snr, signal_power=power, seed=self.seed))
+        # snr_db stays object because describe() reports float | None as opaque; Awgn checks the value at setup.
+        chan = Awgn(snr_db=snr, signal_power=power, seed=self.seed)  # pyrefly: ignore[bad-argument-type]
+        self.chan = self.child("chan", chan)
         self.rx = self.child("rx", FirDecimate(taps=rx_taps, factor=self.sps, phase=self.phase))
         self.demap = self.child("demap", SymbolDemapper(constellation=table))
         self.delay = self.child("delay", SampleDelay(delay=self.bit_delay))

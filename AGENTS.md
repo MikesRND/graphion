@@ -13,6 +13,9 @@ Run from the repository root with uv installed.
 - `uv run --locked just test tests/test_declarations.py` runs a focused test file.
 - `uv run --locked just ci` also builds the wheel and source distribution.
 
+Run `uv run --locked just check` before finishing a change. If it fails, fix
+the cause or report the failure.
+
 ## Repository map
 
 - `src/graphion/profile/numpy_frame/` implements declarations, lifecycle, and
@@ -34,7 +37,7 @@ Run from the repository root with uv installed.
 - Use `misuse(value)` only in rejection tests with an exception type and a
   message fragment. Wrap the individual argument. Wrap the callable only
   when exercising a missing, extra, or otherwise invalid signature.
-- Limit suppressions to five across source, examples, and tests. Give each
-  suppression a specific diagnostic code and a reason.
+- Every suppression, `cast`, and `Any` annotation used to quiet the checker
+  names its target (a specific diagnostic code or type) and gives a reason.
 - Use Conventional Commits with an imperative subject, for example
   `fix(storage): reject overlapping output buffers`.

@@ -26,7 +26,7 @@ def anchors(text):
 def pages():
     archived_plans = DOCS / "plans" / "done"
     found = sorted(page for page in DOCS.rglob("*.md") if not page.is_relative_to(archived_plans))
-    return found + sorted((ROOT / "examples").rglob("*.md")) + [ROOT / "README.md"]
+    return found + sorted((ROOT / "examples").rglob("*.md")) + [ROOT / "README.md", ROOT / "AGENTS.md"]
 
 
 def check_pages(pages):

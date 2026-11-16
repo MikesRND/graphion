@@ -36,7 +36,7 @@ jobs:
         run: uv python install
 
       - name: Install project and development dependencies
-        run: uv run --locked just sync
+        run: uv sync --locked
 
       - name: Check pull request commit subjects
         if: github.event_name == 'pull_request'

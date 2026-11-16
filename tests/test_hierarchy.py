@@ -239,7 +239,7 @@ class HierarchyTests(unittest.TestCase):
                 self.worker = self.child("worker", Worker())
 
         class Root(Block):
-            supplied: Branch = Param()
+            supplied: Block = Param()
 
             def build(self):
                 self.branch = self.child("branch", self.supplied)
@@ -252,6 +252,7 @@ class HierarchyTests(unittest.TestCase):
                 self.check_pending()
 
             def check_pending(self):
+                assert isinstance(self.branch, Branch)
                 for node in (self.branch, self.branch.worker):
                     for operation in (node.run, node.reset):
                         with test.assertRaises(SetupError):

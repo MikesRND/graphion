@@ -141,6 +141,7 @@ class BuildTests(unittest.TestCase):
         model = Relay(target=Scale())
         model.x = np.arange(4.0)
         model.setup(context())
+        assert isinstance(model.worker, Scale)
         snapshot = model.describe()
         output, direct, bound = model.y, model.worker.y, model.x
         with patch.object(Block, "_endpoint_source", side_effect=AssertionError("repeat validation")):

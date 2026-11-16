@@ -16,6 +16,10 @@ class _Parameter:
     """Marker shared by declaration and schema records; has no operators."""
 
     __slots__ = ()
+    # The subclasses are frozen dataclasses, so their kind field is read-only.
+    # A plain annotation here reads as mutable and the checker reports their
+    # fields as bad overrides. The property exists only for the checker, so the
+    # runtime class keeps its empty slots and gains no descriptor.
     if TYPE_CHECKING:
 
         @property

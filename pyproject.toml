@@ -75,3 +75,7 @@ python-version = "3.12"
 
 [tool.pyrefly.errors]
 unused-ignore = "error"
+# The flagged int(), bool() and str() calls normalise NumPy scalars and integral
+# values that the stubs already describe as Python types. Removing them would
+# change runtime values in describe(), dimension resolution and storage checks.
+unnecessary-type-conversion = "ignore"

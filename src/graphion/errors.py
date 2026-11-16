@@ -1,10 +1,5 @@
 """Errors raised by Graphion block contracts."""
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from .profile.numpy_frame.block import Block
-
 
 class BlockError(Exception):
     """Base class for Graphion contract errors."""
@@ -21,7 +16,10 @@ class ParamError(BlockError):
 class SetupError(BlockError):
     """Invalid context, lifecycle call, or setup state."""
 
-    _context_block: "Block"
+    # Only framework ctx lookup errors set this marker, so most instances lack
+    # it. Profiles test for its presence and never read it, which keeps this
+    # profile-agnostic module free of profile types.
+    _context_block: object
 
 
 class ExecutionError(BlockError):

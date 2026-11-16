@@ -46,6 +46,7 @@ class BerDiagram:
             if plt.get_backend().lower() in ("agg", "svg", "pdf", "ps", "pgf", "template", "cairo"):
                 raise RuntimeError("--diagram needs a GUI Matplotlib backend and a graphical desktop")
             self.figure = plt.figure(figsize=(15, 6.5))
+            # cast(FigureManagerBase): pyplot figures always have a manager; the stubs allow None for bare canvases.
             manager = cast("FigureManagerBase", self.figure.canvas.manager)
             manager.set_window_title("Graphion · BER model")
         self.axes = self.figure.add_axes((0.02, 0.14, 0.96, 0.76))

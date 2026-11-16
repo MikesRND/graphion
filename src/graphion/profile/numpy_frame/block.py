@@ -259,8 +259,7 @@ class Block:
         }
         # Share the phase readiness records refreshed by rebinding.
         self._process_call = self._calls.get("process")
-        # run() guards its split branch; the checker cannot correlate the two phase records.
-        self._output_call: _Call | Any = self._calls.get("output")
+        self._output_call = self._calls.get("output")
         self._update_call = self._calls.get("update")
         self._run_missing: tuple[str, ...] = ()
         self._config_locked = False
@@ -361,6 +360,7 @@ class Block:
         parts = []
         block = self
         while block._parent is not None:
+            # cast(str): every block with a parent was registered under a validated string name.
             parts.append(cast(str, block._child_name).replace("~", "~0").replace("/", "~1"))
             block = block._parent
         path = "/".join(("root", *reversed(parts)))
@@ -752,6 +752,8 @@ class Block:
                 for node in self._walk():
                     node._reset_prepared = False
 
+    # Any: the result is an Array, a tuple of Arrays, or None, depending on the
+    # declared Outputs. docs/reference/execution.md documents the limits.
     def run(self) -> Array | Any:
         """Run one full iteration and return the cached output result."""
         if not self._ready:
@@ -772,7 +774,7 @@ class Block:
             else:
                 call = self._output_call
                 self._pending = True
-                if call.hook() is not None:
+                if call.hook() is not None:  # pyrefly: ignore[missing-attribute]  # run() rejected a missing output phase above.
                     raise ExecutionError(f"{self._identity()}: processing hooks must return None")
                 update = self._update_call
                 if update is not None and update.hook() is not None:
@@ -784,6 +786,7 @@ class Block:
             raise
         return self._result
 
+    # Any: same result shape as run().
     def run_output(self) -> Array | Any:
         """Evaluate the output phase of a split block and return the cached result."""
         if not self._ready:

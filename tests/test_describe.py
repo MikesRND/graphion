@@ -412,6 +412,7 @@ class DescriptionTests(unittest.TestCase):
                 raise AssertionError("description represented annotation argument")
 
         arguments = get_args(Array)
+        # cast(Any): the checker types this origin as unsubscriptable type[Any]; at runtime it is np.ndarray.
         origin = cast(Any, get_origin(Array))
         equivalent = origin[arguments]
         opaque = origin[(*arguments[:-1], EqualityForbidden())]
