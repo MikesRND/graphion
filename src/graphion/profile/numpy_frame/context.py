@@ -12,6 +12,8 @@ from graphion.errors import SetupError
 
 @dataclass(frozen=True)
 class Ctx:
+    """Immutable context for a Python/NumPy frame block."""
+
     rate: int | float | Fraction | np.integer | np.floating
     n: int
     channels: int
@@ -41,7 +43,7 @@ class Ctx:
             if isinstance(value, bool) or not isinstance(value, Integral) or value <= 0:
                 raise SetupError(f"{name} must be a positive integer")
         try:
-            dtype = np.dtype(self.dtype)
+            dtype = np.dtype(self.dtype)  # pyrefly: ignore[no-matching-overload]  # NumPy validates selectors at runtime.
         except (TypeError, ValueError, OverflowError) as exc:
             raise SetupError("unsupported sample dtype") from exc
         if dtype.kind not in "biufc":
@@ -49,4 +51,5 @@ class Ctx:
         object.__setattr__(self, "dtype", dtype)
 
     def replace(self, **changes):
+        """Return a validated context with the supplied fields replaced."""
         return replace(self, **changes)

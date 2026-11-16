@@ -284,23 +284,27 @@ def test_viewer_retains_matched_filter_output(table):
     depth = 300  # Longer than a frame of either modulation's symbols.
     tb = BerTestbench(constellation=table, ebn0_db=4, viewer_depth=depth)
     tb.setup(Ctx(n=256, channels=1, rate=Fraction(tb.k * 1_000_000)))
-    assert tb.viewer.skip == tb.skip // tb.k == 24
+    viewer = tb.viewer
+    assert viewer is not None
+    assert viewer.skip == tb.skip // tb.k == 24
     received = []
     for _ in range(6):
         tb.run()
-        assert np.shares_memory(tb.viewer.x, tb.demap.x)  # Fan-out borrows the decision input.
+        assert np.shares_memory(viewer.x, tb.demap.x)  # Fan-out borrows the decision input.
         received.append(tb.rx.y[0].copy())
-        kept = np.concatenate(received)[tb.viewer.skip :][-depth:]
+        kept = np.concatenate(received)[viewer.skip :][-depth:]
         expected = np.full(depth, np.nan, dtype=np.complex128)
         expected[depth - len(kept) :] = kept
-        np.testing.assert_array_equal(tb.viewer.points[0], expected)
-    assert not np.isnan(tb.viewer.points).any()
+        np.testing.assert_array_equal(viewer.points[0], expected)
+    assert not np.isnan(viewer.points).any()
 
 
 @pytest.mark.parametrize("table", [bpsk(), qpsk()])
 def test_noiseless_viewer_points_lie_near_ideal_symbols(table):
     tb = simulate(table, 0, frames=3, snr_db=np.inf, viewer_depth=4096)
-    points = tb.viewer.points[0]
+    viewer = tb.viewer
+    assert viewer is not None
+    points = viewer.points[0]
     points = points[~np.isnan(points)]
     assert len(points) >= 2048
     distance = np.abs(points[:, None] - np.asarray(table)[None, :]).min(axis=1)

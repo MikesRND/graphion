@@ -75,6 +75,13 @@ returns `None`. The [storage contract](storage-and-lifetime.md#the-buffer-contra
 defines result lifetime. All processing hooks must return `None`; any other return
 counts as a hook failure.
 
+The static return type of `run()` and `run_output()` is `Array | Any`. It supports
+common uses such as copying a single Output, unpacking multiple Outputs, and
+checking a sink result with `is None`. Use `isinstance(result, tuple)` before
+calling tuple methods such as `.count()` or `.index()`. The checker can accept
+array operations on multiple-Output results and the annotation carries no dtype
+information.
+
 ### Controls and failures
 
 Controls on a Split Block and its descendants freeze immediately before its

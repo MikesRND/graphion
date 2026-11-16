@@ -1,4 +1,5 @@
 import unittest
+from contextlib import suppress
 
 import numpy as np
 
@@ -19,6 +20,7 @@ from graphion import (
     WiringError,
 )
 from graphion.dsp.blocks import Gain
+from tests.typing_helpers import misuse
 
 
 def context():
@@ -39,10 +41,10 @@ class HierarchyTests(unittest.TestCase):
         view = parent.children
         self.assertIs(parent.first, supplied)
         self.assertIs(view["first /~"], supplied)
-        with self.assertRaises(TypeError):
-            view["other"] = Block()
-        with self.assertRaises(AttributeError):
-            parent.children = {}
+        with self.assertRaisesRegex(TypeError, "does not support item assignment"):
+            misuse(view)["other"] = Block()
+        with self.assertRaisesRegex(AttributeError, "has no setter"):
+            misuse(parent).children = {}
         parent.setup(context())
         self.assertIs(parent.children, view)
         self.assertEqual(list(view), ["first /~", "last"])
@@ -64,18 +66,21 @@ class HierarchyTests(unittest.TestCase):
 
         parent = Parent()
         existing = parent.child("existing", Block())
-        for name, child in [
-            ("", Block()),
-            (None, Block()),
-            (3, Block()),
-            ("reserved", Block()),
-            ("existing", Block()),
-            ("invalid", object()),
-            ("self", parent),
-            ("again", existing),
+        for name, child, message in [
+            ("", Block(), "name must be a nonempty string"),
+            (None, Block(), "name must be a nonempty string"),
+            (3, Block(), "name must be a nonempty string"),
+            ("reserved", Block(), "declaration-name collision"),
+            ("existing", Block(), "duplicate child name"),
+            ("invalid", object(), "child must be a Block"),
+            ("self", parent, "lifecycle registration cycle"),
+            ("again", existing, "child already has a lifecycle parent"),
         ]:
-            with self.subTest(name=name), self.assertRaises(RegistrationError) as caught:
-                parent.child(name, child)
+            with self.subTest(name=name), self.assertRaisesRegex(RegistrationError, message) as caught:
+                parent.child(
+                    name if isinstance(name, str) else misuse(name),
+                    child if isinstance(child, Block) else misuse(child),
+                )
             self.assertIsInstance(caught.exception, BlockError)
             self.assertEqual(dict(parent.children), {"existing": existing})
         other = Block()
@@ -111,7 +116,7 @@ class HierarchyTests(unittest.TestCase):
                 node.child("late", Block())
 
     def test_recursive_setup_and_reset_order_with_explicit_context(self):
-        events = []
+        events: list[tuple[str, str, int] | tuple[str, str, int, int]] = []
 
         class Leaf(Block):
             label: str = Param()
@@ -209,14 +214,14 @@ class HierarchyTests(unittest.TestCase):
         branch.reset()
         self.assertEqual([node.count for node in nodes], [2, 1, 1, 2])
         self.assertEqual(branch.gain, 3.0)
-        for node, (state, output) in zip(nodes, arrays_before):
+        for node, (state, output) in zip(nodes, arrays_before, strict=False):
             self.assertIs(node.history, state)
             self.assertIs(node.y, output)
             np.testing.assert_array_equal(output, np.ones(4))
         np.testing.assert_array_equal(branch.history, np.zeros(4))
         np.testing.assert_array_equal(leaf.history, np.zeros(4))
         np.testing.assert_array_equal(root.history, np.ones(4))
-        for node, result in zip(nodes, results):
+        for node, result in zip(nodes, results, strict=False):
             self.assertIs(node.run(), result)
 
     def test_prebuilt_subtree_stays_unready_until_root_finishes(self):
@@ -247,6 +252,7 @@ class HierarchyTests(unittest.TestCase):
                 self.check_pending()
 
             def check_pending(self):
+                assert isinstance(self.branch, Branch)
                 for node in (self.branch, self.branch.worker):
                     for operation in (node.run, node.reset):
                         with test.assertRaises(SetupError):
@@ -396,10 +402,14 @@ class HierarchyTests(unittest.TestCase):
             error = ValueError("child setup failure")
 
             class Bad(Block):
+                _error = error
+
                 def setup(self, ctx):
-                    raise error
+                    raise self._error
 
             class Parent(Block):
+                _catch_child_error = catch_child_error
+
                 def build(self):
                     self.good = self.child("good", Block())
                     self.bad = self.child("bad", Bad())
@@ -407,18 +417,16 @@ class HierarchyTests(unittest.TestCase):
 
                 def setup(self, ctx):
                     self.good.setup(ctx)
-                    if catch_child_error:
-                        try:
+                    if self._catch_child_error:
+                        with suppress(ValueError):
                             self.bad.setup(ctx)
-                        except ValueError:
-                            pass
 
             parent = Parent()
             expected = SetupError if catch_child_error else ValueError
             with self.subTest(caught=catch_child_error), self.assertRaises(expected):
                 parent.setup(context())
             for node in (parent, *parent.children.values()):
-                for operation in (node.run, node.reset, lambda: node.setup(context())):
+                for operation in (node.run, node.reset, lambda node=node: node.setup(context())):
                     with self.assertRaises(SetupError):
                         operation()
                 with self.assertRaisesRegex(RegistrationError, "after setup failure; construct a new tree"):

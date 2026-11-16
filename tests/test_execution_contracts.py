@@ -63,23 +63,20 @@ class ExecutionContractTests(unittest.TestCase):
         # This guards collection from input/schema traversal and cached returns;
         # it is not a general heap-allocation detector for author numerical code.
         bindings = model._values
-        model._values = LookupOnly(bindings)
-        try:
-            with (
-                patch.object(Pair, "schema", LookupOnly(Pair.schema)),
-                patch.object(arrays, "validate", side_effect=AssertionError("per-run validation")),
-                patch.object(arrays, "readonly_view", side_effect=AssertionError("per-run export")),
-            ):
-                for value in (2, 5, 9):
-                    source.fill(value)
-                    current = model.run()
-                    self.assertIs(current, result)
-                    self.assertIs(current[0], result[0])
-                    self.assertIs(current[1], result[1])
-                    np.testing.assert_array_equal(current[0], value + 1)
-                    np.testing.assert_array_equal(current[1], value - 1)
-        finally:
-            model._values = bindings
+        with (
+            patch.object(model, "_values", LookupOnly(bindings)),
+            patch.object(Pair, "schema", LookupOnly(Pair.schema)),
+            patch.object(arrays, "validate", side_effect=AssertionError("per-run validation")),
+            patch.object(arrays, "readonly_view", side_effect=AssertionError("per-run export")),
+        ):
+            for value in (2, 5, 9):
+                source.fill(value)
+                current = model.run()
+                self.assertIs(current, result)
+                self.assertIs(current[0], result[0])
+                self.assertIs(current[1], result[1])
+                np.testing.assert_array_equal(current[0], value + 1)
+                np.testing.assert_array_equal(current[1], value - 1)
         self.assertEqual(model.calls, 4)
         model.reset()
         self.assertIs(model.run(), result)
@@ -261,7 +258,7 @@ class ExecutionContractTests(unittest.TestCase):
         model.reset()
         self.assertEqual((model.started, model.finished), (0, 0))
         self.assertEqual((model.first.calls, model.second.calls, model.third.calls), (0, 0, 0))
-        for block, output in zip((model.first, model.second, model.third), outputs):
+        for block, output in zip((model.first, model.second, model.third), outputs, strict=False):
             self.assertIs(block.y, output)
         model.second.fail = False
         self.assertIs(model.run(), result)
@@ -274,7 +271,7 @@ class ExecutionContractTests(unittest.TestCase):
         failure = ValueError("base author setup failed")
 
         class Base(Block):
-            def setup(self, ctx):
+            def setup(self, ctx) -> None:
                 events.append("base")
                 raise failure
 

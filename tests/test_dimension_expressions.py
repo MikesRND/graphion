@@ -12,6 +12,7 @@ import numpy as np
 from graphion import Array, Block, C, Ctx, DeclarationError, In, N, Out, Param, PortSpec, SetupError, State
 from graphion.profile.numpy_frame import _dimensions
 from tests.test_declarations import module_with
+from tests.typing_helpers import misuse
 
 
 class RequiredSize(Block):
@@ -96,14 +97,17 @@ class DimensionExpressionTests(unittest.TestCase):
 
     def test_invalid_literals_fail_during_class_definition(self) -> None:
         for operand in ("(3 / 2)", "1.5", "True", "np.bool_(False)", "np.float64(2)"):
-            with self.subTest(operand=operand), self.assertRaises(DeclarationError):
-                with module_with(f"""
+            with (
+                self.subTest(operand=operand),
+                self.assertRaises(DeclarationError),
+                module_with(f"""
 import numpy as np
 from graphion import Array, Block, N, Out
 class Model(Block):
     y: Array = Out(N * {operand})
-"""):
-                    self.fail("invalid expression accepted")
+"""),
+            ):
+                self.fail("invalid expression accepted")
 
     def test_invalid_configured_values_fail_at_setup(self) -> None:
         for value, message in (
@@ -115,8 +119,7 @@ class Model(Block):
             ("2", "integers or Fractions"),
         ):
             with self.subTest(value=value), self.assertRaisesRegex(SetupError, message):
-                # Runtime configuration validation is exercised independently of typing.
-                model = RequiredSize(**{"factor": value})  # type: ignore[arg-type]
+                model = RequiredSize(factor=misuse(value))
                 model.setup(context())
 
     def test_fraction_param_and_instance_overrides_are_independent(self) -> None:
@@ -151,8 +154,10 @@ class Model(Block):
             "y: Array = Out(N / outside)",
             "y: Array = Out(Other.schema['y'].axes[0] * 2)",
         ):
-            with self.subTest(body=body), self.assertRaisesRegex(DeclarationError, "belong"):
-                with module_with(f"""
+            with (
+                self.subTest(body=body),
+                self.assertRaisesRegex(DeclarationError, "belong"),
+                module_with(f"""
 from graphion import Array, Block, N, Out, Param
 class Other(Block):
     factor: int = Param(default=2)
@@ -160,8 +165,9 @@ class Other(Block):
 outside = Param(default=2)
 class Model(Block):
     {body}
-"""):
-                    self.fail("foreign reference accepted")
+"""),
+            ):
+                self.fail("foreign reference accepted")
 
     def test_aliases_bare_params_and_non_params_fail(self) -> None:
         bodies = (
@@ -172,22 +178,28 @@ class Model(Block):
             ("a: Array = In(N)\n    y: Array = Out(N * a)", "only Params"),
         )
         for body, message in bodies:
-            with self.subTest(body=body), self.assertRaisesRegex(DeclarationError, message):
-                with module_with(f"""
+            with (
+                self.subTest(body=body),
+                self.assertRaisesRegex(DeclarationError, message),
+                module_with(f"""
 from graphion import Array, Block, Control, In, N, Out, Param, State
 class Model(Block):
     {body}
-"""):
-                    self.fail("invalid dimension accepted")
+"""),
+            ):
+                self.fail("invalid dimension accepted")
 
     def test_only_size_tokens_and_expressions_have_arithmetic(self) -> None:
         for expression in ('Axis("width") * 2', "Sample * 2", "Param(default=2) + 1"):
-            with self.subTest(expression=expression), self.assertRaises(TypeError):
-                with module_with(f"""
+            with (
+                self.subTest(expression=expression),
+                self.assertRaises(TypeError),
+                module_with(f"""
 from graphion import Axis, Param, Sample
 value = {expression}
-"""):
-                    self.fail("unsupported arithmetic accepted")
+"""),
+            ):
+                self.fail("unsupported arithmetic accepted")
 
     def test_description_preserves_expression_and_exact_fraction(self) -> None:
         class Model(Block):
@@ -269,8 +281,8 @@ class PortSpecTests(unittest.TestCase):
         self.assertEqual(spec.shape, (2, 6))
         self.assertEqual(spec.dtype, np.dtype(np.float64))
         self.assertIs(block.port_spec("x"), spec)
-        with self.assertRaises(FrozenInstanceError):
-            setattr(spec, "shape", (1,))
+        with self.assertRaisesRegex(FrozenInstanceError, "cannot assign to field"):
+            misuse(spec).shape = (1,)
         for name in ("missing", "factor"):
             with self.subTest(name=name), self.assertRaisesRegex(SetupError, "not a port"):
                 block.port_spec(name)
@@ -344,10 +356,13 @@ class PortSpecTests(unittest.TestCase):
 
     def test_port_spec_is_a_reserved_member(self) -> None:
         for body in ("port_spec: int = Param(default=1)", "def port_spec(self): pass"):
-            with self.subTest(body=body), self.assertRaises(DeclarationError):
-                with module_with(f"""
+            with (
+                self.subTest(body=body),
+                self.assertRaises(DeclarationError),
+                module_with(f"""
 from graphion import Block, Param
 class Model(Block):
     {body}
-"""):
-                    self.fail("reserved member accepted")
+"""),
+            ):
+                self.fail("reserved member accepted")

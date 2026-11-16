@@ -17,16 +17,16 @@ from .symbol_demapper import SymbolDemapper
 from .symbol_mapper import SymbolMapper
 
 __all__ = [
-    "Gain",
     "Awgn",
-    "FrameDelay",
-    "SampleDelay",
-    "FirDecimate",
-    "FirInterpolate",
-    "OnePoleLowpass",
     "ConstellationViewer",
     "ErrorCounter",
+    "FirDecimate",
+    "FirInterpolate",
+    "FrameDelay",
+    "Gain",
+    "OnePoleLowpass",
+    "Prbs",
+    "SampleDelay",
     "SymbolDemapper",
     "SymbolMapper",
-    "Prbs",
 ]

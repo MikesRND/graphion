@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -16,7 +16,16 @@ class _Parameter:
     """Marker shared by declaration and schema records; has no operators."""
 
     __slots__ = ()
-    kind: str
+    # The subclasses are frozen dataclasses, so their kind field is read-only.
+    # A plain annotation here reads as mutable and the checker reports their
+    # fields as bad overrides. The property exists only for the checker, so the
+    # runtime class keeps its empty slots and gains no descriptor.
+    if TYPE_CHECKING:
+
+        @property
+        def kind(self) -> str: ...
+    else:
+        kind: str
 
 
 class _Arithmetic:

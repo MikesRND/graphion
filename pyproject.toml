@@ -27,7 +27,7 @@ dependencies = ["numpy>=2.0"]
 Homepage = "https://github.com/MikesRND/graphion"
 
 [dependency-groups]
-dev = ["matplotlib", "mypy", "PySide6", "pytest", "ruff"]
+dev = ["matplotlib", "pyrefly", "PySide6", "pytest", "ruff", "rust-just"]
 
 [tool.setuptools.dynamic]
 version = { attr = "graphion.__version__" }
@@ -43,9 +43,24 @@ graphion = ["py.typed"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+extend-exclude = [".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I"]
+allowed-confusables = ["×", "σ"]
+select = [
+    "E4", "E7", "E9", "F", "I",
+    "B", "C4", "NPY", "PERF", "PIE", "RUF", "SIM", "UP",
+    "D", "ERA", "FIX", "PGH003", "PGH004",
+]
+ignore = ["D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+"{examples,docs}/**" = ["D101", "D102", "D103"]
+"src/graphion/dsp/blocks/**" = ["D102"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
@@ -53,11 +68,14 @@ testpaths = ["tests"]
 addopts = ["--import-mode=importlib"]
 pythonpath = ["."]
 
-[tool.mypy]
-follow_imports = "normal"
-strict_optional = true
-files = ["src/graphion", "tests", "examples"]
+[tool.pyrefly]
+project-includes = ["src", "tests", "examples", "docs/check.py"]
+search-path = ["src", "."]
+python-version = "3.12"
 
-[[tool.mypy.overrides]]
-module = ["matplotlib", "matplotlib.*"]
-ignore_missing_imports = true
+[tool.pyrefly.errors]
+unused-ignore = "error"
+# The flagged int(), bool() and str() calls normalise NumPy scalars and integral
+# values that the stubs already describe as Python types. Removing them would
+# change runtime values in describe(), dimension resolution and storage checks.
+unnecessary-type-conversion = "ignore"

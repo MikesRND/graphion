@@ -1,12 +1,12 @@
 """Block declarations, lifecycle and storage management."""
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from functools import wraps
 from numbers import Integral
 from types import MappingProxyType, MemberDescriptorType
-from typing import dataclass_transform
+from typing import Any, cast, dataclass_transform
 
 import numpy as np
 
@@ -27,6 +27,7 @@ from . import _declarations, _dimensions
 from . import _storage as arrays
 from ._declarations import (
     MISSING,
+    Array,
     Axis,
     C,
     Control,
@@ -39,6 +40,7 @@ from ._declarations import (
     _Declaration,
     _Field,
 )
+from ._dependencies import _INPUT_DEPENDENCIES_ATTR
 from .context import Ctx
 from .spec import PortSpec
 
@@ -74,9 +76,9 @@ class _TreeStatus:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class _Connection:
-    source_block: object
+    source_block: "Block"
     source_port: str
-    destination_block: object
+    destination_block: "Block"
     destination_port: str
 
 
@@ -89,11 +91,11 @@ class _Call:
 
 def _processing_phases(cls):
     hooks = {name: inspect.getattr_static(cls, name) for name in ("process", "output", "update") if hasattr(cls, name)}
-    if "process" in hooks and len(hooks) != 1 or "update" in hooks and "output" not in hooks:
+    if ("process" in hooks and len(hooks) != 1) or ("update" in hooks and "output" not in hooks):
         raise DeclarationError(f"{cls.__qualname__}: define process, or output with optional update")
     for name, value in vars(cls).items():
         method = value.__func__ if isinstance(value, (staticmethod, classmethod)) else value
-        if inspect.isfunction(method) and hasattr(method, "_graphion_input_dependencies") and name != "output":
+        if inspect.isfunction(method) and hasattr(method, _INPUT_DEPENDENCIES_ATTR) and name != "output":
             raise DeclarationError(f"{cls.__qualname__}.{name}: needs_inputs applies only to output")
     inputs = tuple(port for port, field in cls.schema.items() if field.kind == "In")
     dependencies = {}
@@ -108,7 +110,7 @@ def _processing_phases(cls):
             or parameters[0].default is not inspect.Parameter.empty
         ):
             raise DeclarationError(f"{cls.__qualname__}.{name}: processing hook must take only positional self")
-        declared = getattr(hook, "_graphion_input_dependencies", None)
+        declared = getattr(hook, _INPUT_DEPENDENCIES_ATTR, None)
         if declared is None:
             dependencies[name] = inputs
         else:
@@ -239,7 +241,7 @@ class Block:
         self._local_setup_complete = False
         self._tree = _TreeStatus()
         self._parent = None
-        self._child_name = None
+        self._child_name: str | None = None
         self._children = {}
         self._children_view = MappingProxyType(self._children)
         self._connections = ()
@@ -286,6 +288,7 @@ class Block:
             self._in_build_hook = False
 
     def build(self):
+        """Validate and commit the lifecycle root's topology without a context."""
         if not self._in_build_hook:
             return self._build()
 
@@ -308,6 +311,7 @@ class Block:
 
     @property
     def ctx(self):
+        """Return the context assigned during local setup."""
         if self._ctx is None:
             error = SetupError(f"{self._identity()}: ctx is unavailable before setup")
             # Mark only framework context lookup errors for axis diagnostics.
@@ -321,10 +325,12 @@ class Block:
 
     @property
     def children(self):
+        """Return a read-only view of registered children in registration order."""
         return self._children_view
 
     @property
     def connections(self):
+        """Return immutable connection records in declaration order."""
         return self._connections
 
     def describe(self):
@@ -334,6 +340,7 @@ class Block:
         return _describe.describe(self)
 
     def port_spec(self, name: str) -> PortSpec:
+        """Return the resolved shape and dtype of a locally configured port."""
         field = self.schema.get(name)
         if field is None or field.kind not in ("In", "Out"):
             raise SetupError(f"{self._identity()}.{name}: not a port")
@@ -353,23 +360,26 @@ class Block:
         parts = []
         block = self
         while block._parent is not None:
-            parts.append(block._child_name.replace("~", "~0").replace("/", "~1"))
+            # cast(str): every block with a parent was registered under a validated string name.
+            parts.append(cast(str, block._child_name).replace("~", "~0").replace("/", "~1"))
             block = block._parent
         path = "/".join(("root", *reversed(parts)))
         return f"{path} ({type(self).__qualname__})"
 
-    def _walk(self):
+    def _walk(self) -> Iterator["Block"]:
         yield self
         for child in self._children.values():
             yield from child._walk()
 
-    def _input_sources(self):
+    def _input_sources(self) -> Iterator[tuple["Block", str, "Block", str]]:
         for node in self._walk():
             for name, field in node.schema.items():
                 if field.kind == "In":
-                    yield (node, name, *node._endpoint_source(name))
+                    source, port = node._endpoint_source(name)
+                    yield node, name, source, port
 
-    def child(self, name, block):
+    def child[B: Block](self, name: str, block: B) -> B:
+        """Register a direct lifecycle child and return that child."""
         if self._tree.failed:
             raise RegistrationError("cannot register children after setup failure; construct a new tree")
         if self._phase != "new":
@@ -399,6 +409,7 @@ class Block:
         return block
 
     def connect(self, source_block, source_port, destination_block, destination_port):
+        """Record a connection between ports of the owner or its direct children."""
         if self._tree.failed:
             raise WiringError("cannot record connections after setup failure; construct a new tree")
         if self._phase != "new":
@@ -427,15 +438,15 @@ class Block:
         if destination.kind == "Out" and destination_port in destination_block._supplied:
             raise StorageError(f"{destination_port}: a supplied output cannot be forwarded")
         connection = _Connection(source_block, source_port, destination_block, destination_port)
-        records = self._connections + (connection,)
+        records = (*self._connections, connection)
         destination_block._incoming[destination_port] = connection
         self._connections = records
 
-    def _endpoint_source(self, name):
+    def _endpoint_source(self, name: str) -> tuple["Block", str]:
         # Inputs travel up boundary forwarding until an external slot or an
         # output is reached. Outputs then travel down to their direct producer.
         # Never follow the producer's inputs: signal feedback is caller-ordered.
-        block = self
+        block: Block = self
         while name in block._incoming:
             edge = block._incoming[name]
             block, name = edge.source_block, edge.source_port
@@ -481,7 +492,7 @@ class Block:
             for writer in node._writers
         )
         arrays.validate_writers(writers)
-        for source, port, readers in external.values():
+        for source, port, _ in external.values():
             if port in source._input_raw:
                 arrays.validate_input_storage(
                     source._input_raw[port], f"{source._identity()}.{port} (external input)", writers
@@ -559,6 +570,7 @@ class Block:
             reader._refresh_calls()
 
     def bind_output(self, name, array):
+        """Supply caller-owned storage for a direct output before layout is resolved."""
         field = self.schema.get(name)
         if field is None or field.kind != "Out":
             raise StorageError(f"{name}: not an output")
@@ -622,6 +634,7 @@ class Block:
         return tuple(shape), dtype
 
     def setup(self, ctx):
+        """Configure the block with a context, including its declared storage."""
         if not self._in_setup_hook:
             return self._setup(ctx, None)
 
@@ -700,6 +713,7 @@ class Block:
             raise
 
     def reset(self):
+        """Restore declared State and run reset hooks on the configured subtree."""
         if not self._in_reset_hook:
             return self._reset(None)
 
@@ -738,24 +752,33 @@ class Block:
                 for node in self._walk():
                     node._reset_prepared = False
 
-    def run(self):
+    # Any: the result is an Array, a tuple of Arrays, or None, depending on the
+    # declared Outputs. docs/reference/execution.md documents the limits.
+    def run(self) -> Array | Any:
+        """Run one full iteration and return the cached output result."""
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
             raise ExecutionError(f"{self._identity()}: processing requires successful reset")
         if self._pending:
             raise ExecutionError(f"{self._identity()}: iteration already pending")
+        # Narrow call on every path so the checker sees a hook without a
+        # suppression. The split flag records which hook was selected.
         call = self._process_call
-        if call is None and self._output_call is None:
-            raise ExecutionError(f"{self._identity()}: no processing hook defined")
+        if call is None:
+            call = self._output_call
+            if call is None:
+                raise ExecutionError(f"{self._identity()}: no processing hook defined")
+            split = True
+        else:
+            split = False
         if self._run_missing:
             raise UnavailablePortError(f"{self._identity()}: unset inputs: {', '.join(self._run_missing)}")
         try:
-            if call is not None:
+            if not split:
                 if call.hook() is not None:
                     raise ExecutionError(f"{self._identity()}: processing hooks must return None")
             else:
-                call = self._output_call
                 self._pending = True
                 if call.hook() is not None:
                     raise ExecutionError(f"{self._identity()}: processing hooks must return None")
@@ -769,7 +792,9 @@ class Block:
             raise
         return self._result
 
-    def run_output(self):
+    # Any: same result shape as run().
+    def run_output(self) -> Array | Any:
+        """Evaluate the output phase of a split block and return the cached result."""
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:
@@ -791,6 +816,7 @@ class Block:
         return self._result
 
     def run_update(self):
+        """Complete the pending update phase of a split block."""
         if not self._ready:
             raise SetupError("processing requires successful setup")
         if self._requires_reset:

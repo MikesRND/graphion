@@ -6,6 +6,8 @@ from graphion.profile.numpy_frame import Array, Block, C, In, N, Out, State, nee
 
 
 class FrameDelay(Block):
+    """Return the previous whole frame, initially zero."""
+
     x: Array = In(C, N)
     y: Array = Out(C, N)
     stream_ports = ("x", "y")

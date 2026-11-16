@@ -25,6 +25,7 @@ from graphion import (
 )
 from graphion.dsp.blocks import Gain
 from graphion.profile.numpy_frame import _storage as arrays
+from tests.typing_helpers import misuse
 
 
 def context(dtype=np.float64, n=4):
@@ -166,9 +167,11 @@ class BlockTests(unittest.TestCase):
         writers = [arrays.Writer("a", shared, True), arrays.Writer("b", shared)]
         with self.assertRaisesRegex(StorageError, "storage overlaps"):
             arrays.validate_writers(writers)
-        with patch.object(np, "shares_memory", side_effect=np.exceptions.TooHardError):
-            with self.assertRaisesRegex(StorageError, "work limit"):
-                arrays.validate_writers(writers)
+        with (
+            patch.object(np, "shares_memory", side_effect=np.exceptions.TooHardError),
+            self.assertRaisesRegex(StorageError, "work limit"),
+        ):
+            arrays.validate_writers(writers)
 
     def test_configuration_is_declarative_and_arrays_are_copied(self):
         class Configured(Block):
@@ -179,10 +182,10 @@ class BlockTests(unittest.TestCase):
             def build(self):
                 self.built_with = self.required
 
-        with self.assertRaises(ParamError):
-            Configured()
-        with self.assertRaises(ParamError):
-            Configured(required=1, typo=3)
+        with self.assertRaisesRegex(ParamError, "required configuration"):
+            misuse(Configured)()
+        with self.assertRaisesRegex(ParamError, "unknown configuration: typo"):
+            misuse(Configured)(required=1, typo=3)
         a, b = Configured(required=1), Configured(required=2)
         self.assertEqual(a.built_with, 1)
         self.assertFalse(np.shares_memory(a.coefficients, b.coefficients))
@@ -338,9 +341,8 @@ class BlockTests(unittest.TestCase):
             "connections",
             "describe",
         ):
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(DeclarationError, "framework-owned"):
-                    type("InvalidOverride", (Block,), {name: lambda self: None})
+            with self.subTest(name=name), self.assertRaisesRegex(DeclarationError, "framework-owned"):
+                type("InvalidOverride", (Block,), {name: lambda self: None})
 
     def test_declared_framework_names_are_explicitly_reserved(self):
         for name in (
@@ -363,9 +365,8 @@ class BlockTests(unittest.TestCase):
             "describe",
             "_private",
         ):
-            with self.subTest(name=name):
-                with self.assertRaisesRegex(DeclarationError, "reserved declaration"):
-                    type("InvalidDeclaration", (Block,), {"__annotations__": {name: int}, name: Param()})
+            with self.subTest(name=name), self.assertRaisesRegex(DeclarationError, "reserved declaration"):
+                type("InvalidDeclaration", (Block,), {"__annotations__": {name: int}, name: Param()})
 
     def test_readiness_and_namespace_check_precedes_author_setup(self):
         class Probe(Gain):
@@ -412,10 +413,10 @@ class BlockTests(unittest.TestCase):
             class Reserved(Block):
                 ctx: int = Param(default=1)
 
-        with self.assertRaises(DeclarationError):
+        with self.assertRaisesRegex(DeclarationError, "State: a default is required"):
 
             class MissingDefault(Block):
-                memory: Array = State(N, dtype=float)
+                memory: Array = misuse(State)(N, dtype=float)
 
         with self.assertRaises(DeclarationError):
 

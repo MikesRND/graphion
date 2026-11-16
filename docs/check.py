@@ -26,7 +26,7 @@ def anchors(text):
 def pages():
     archived_plans = DOCS / "plans" / "done"
     found = sorted(page for page in DOCS.rglob("*.md") if not page.is_relative_to(archived_plans))
-    return found + sorted((ROOT / "examples").rglob("*.md")) + [ROOT / "README.md"]
+    return found + sorted((ROOT / "examples").rglob("*.md")) + [ROOT / "README.md", ROOT / "AGENTS.md"]
 
 
 def check_pages(pages):
@@ -43,7 +43,7 @@ def check_pages(pages):
                 ast.parse(code)
             except SyntaxError as exc:
                 errors.append(f"invalid Python example in {page}: {exc}")
-        for label, target in LINK.findall(text):
+        for _, target in LINK.findall(text):
             if re.match(r"[a-zA-Z][\w+.-]*:", target):
                 continue
             path, _, fragment = unquote(target).partition("#")
@@ -54,9 +54,12 @@ def check_pages(pages):
             if fragment and destination.suffix == ".md":
                 if fragment not in anchors(destination.read_text()):
                     errors.append(f"missing anchor in {page.relative_to(ROOT)}: {target}")
-            elif fragment and re.fullmatch(r"L\d+", fragment):
-                if not 1 <= int(fragment[1:]) <= len(destination.read_text().splitlines()):
-                    errors.append(f"invalid line reference: {target}")
+            elif (
+                fragment
+                and re.fullmatch(r"L\d+", fragment)
+                and not 1 <= int(fragment[1:]) <= len(destination.read_text().splitlines())
+            ):
+                errors.append(f"invalid line reference: {target}")
     return errors
 
 

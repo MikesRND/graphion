@@ -31,7 +31,7 @@ def test_counter(skip):
         counter.x = x[:, start : start + 5]
         counter.ref = ref[:, start : start + 5]
         counter.run()
-    for actual, replay in zip((counter.total, counter.errors, counter.rate), expected):
+    for actual, replay in zip((counter.total, counter.errors, counter.rate), expected, strict=False):
         np.testing.assert_array_equal(actual, replay)
 
 

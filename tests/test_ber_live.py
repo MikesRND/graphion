@@ -1,4 +1,5 @@
 import math
+from typing import TypedDict
 
 import numpy as np
 import pytest
@@ -35,6 +36,7 @@ def test_equal_esn0_and_constant_noise_settings():
     assert models["BPSK"].ebn0_db - models["QPSK"].ebn0_db == pytest.approx(10 * math.log10(2))
     settings = {}
     for name, model in models.items():
+        assert model.viewer is not None
         assert model.viewer.depth == 32
         assert model.chan.snr_db == pytest.approx(float(esn0_to_snr_db(7.0, model.sps)))
         settings[name] = (model.chan.snr_db, model.chan.signal_power, model.ebn0_db)
@@ -55,7 +57,7 @@ def test_display_starts_empty_and_reading_never_advances(tmp_path):
     plotter.save(tmp_path / "before.png")
     assert run.ticks == 0
     assert "tick 0 / 2" in plotter.figure.get_suptitle()
-    for (received, ideal), (name, model) in zip(plotter.lines, run.models.items()):
+    for (received, ideal), (name, model) in zip(plotter.lines, run.models.items(), strict=False):
         assert np.isnan(received.get_xdata()).all()  # Nothing is captured until the first tick.
         np.testing.assert_array_equal(ideal.get_xdata(), np.real(model.constellation))
         np.testing.assert_array_equal(model.prbs.register, fresh[name].prbs.register)
@@ -66,7 +68,7 @@ def test_display_starts_empty_and_reading_never_advances(tmp_path):
     assert run.ticks == 1
     assert "tick 1 / 2" in plotter.figure.get_suptitle()
     assert_same_state(run.models, advanced(1), 1)
-    for (received, _), ax, (name, model) in zip(plotter.lines, plotter.axes, run.models.items()):
+    for (received, _), ax, (name, model) in zip(plotter.lines, plotter.axes, run.models.items(), strict=False):
         np.testing.assert_array_equal(received.get_xdata(), model.viewer.points[0].real)
         np.testing.assert_array_equal(received.get_ydata(), model.viewer.points[0].imag)
         assert ax.get_title().startswith(f"{name} · Eb/N0 {model.ebn0_db:.2f} dB")
@@ -153,7 +155,19 @@ def test_diagram_option_shows_one_model_and_closes_with_the_plot(option, name, m
         created.append(BerDiagram(headless=True))
         return created[-1]
 
-    observed = {}
+    WindowObservation = TypedDict(
+        "WindowObservation",
+        {
+            "at start": str,
+            "at end": str,
+            "title": str,
+            "labels": list[str],
+            "open during run": bool,
+            "closed with the plot": bool,
+        },
+        total=False,
+    )
+    observed: WindowObservation = {}
 
     def show(plotter):
         view = created[0]

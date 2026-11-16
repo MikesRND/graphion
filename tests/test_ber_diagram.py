@@ -13,6 +13,7 @@ def test_diagram_uses_description_without_advancing_model(tmp_path):
     before = model.prbs.register.copy(), model.counter.total.copy()
     diagram = BerDiagram(headless=True)
     diagram.update(model, "QPSK", 1, 3)
+    assert diagram.description is not None
     assert diagram.description == model.describe()
     assert len(diagram.description["connections"]) == 8
     labels = [label.get_text() for label in diagram.axes.texts]
@@ -33,9 +34,12 @@ def test_diagram_places_the_optional_viewer(tmp_path):
     plain.update(simulate(qpsk(), 4, frames=1), "QPSK", 1, 3)
     assert plain.axes.get_xlim() == pytest.approx((-1.6, 12.1))
     model = simulate(qpsk(), 4, frames=1, viewer_depth=512)
-    before = model.viewer.history.copy()
+    viewer = model.viewer
+    assert viewer is not None
+    before = viewer.history.copy()
     diagram = BerDiagram(headless=True)
     diagram.update(model, "QPSK", 1, 3)
+    assert diagram.description is not None
     assert diagram.description == model.describe()
     assert len(diagram.description["connections"]) == 9
     labels = [label.get_text() for label in diagram.axes.texts]
@@ -46,7 +50,7 @@ def test_diagram_places_the_optional_viewer(tmp_path):
     assert diagram.axes.get_xlim() == pytest.approx((-1.6, 15.6))
     diagram.save(tmp_path / "model.png")
     assert (tmp_path / "model.png").read_bytes().startswith(b"\x89PNG")
-    np.testing.assert_array_equal(model.viewer.history, before)
+    np.testing.assert_array_equal(viewer.history, before)
 
 
 def test_diagram_rejects_other_models():

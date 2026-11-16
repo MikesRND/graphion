@@ -1,6 +1,11 @@
 """A host-side diagram of the running BER model, drawn from describe()."""
 
+from typing import TYPE_CHECKING, ClassVar, cast
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.backend_bases import FigureManagerBase
 
 
 class BerDiagram:
@@ -12,7 +17,7 @@ class BerDiagram:
     constellation viewer is placed beside the block it taps.
     """
 
-    POSITIONS = {
+    POSITIONS: ClassVar[dict[str, tuple[float, float]]] = {
         "root/prbs": (0, 3.2),
         "root/mapper": (3.5, 3.2),
         "root/tx": (7, 3.2),
@@ -22,7 +27,7 @@ class BerDiagram:
         "root/counter": (3.5, 0),
         "root/delay": (0, 0),
     }
-    OPTIONAL_POSITIONS = {"root/viewer": (14, 0)}
+    OPTIONAL_POSITIONS: ClassVar[dict[str, tuple[float, float]]] = {"root/viewer": (14, 0)}
 
     def __init__(self, *, headless=False):
         self._headless = headless
@@ -41,7 +46,9 @@ class BerDiagram:
             if plt.get_backend().lower() in ("agg", "svg", "pdf", "ps", "pgf", "template", "cairo"):
                 raise RuntimeError("--diagram needs a GUI Matplotlib backend and a graphical desktop")
             self.figure = plt.figure(figsize=(15, 6.5))
-            self.figure.canvas.manager.set_window_title("Graphion · BER model")
+            # cast(FigureManagerBase): pyplot figures always have a manager; the stubs allow None for bare canvases.
+            manager = cast("FigureManagerBase", self.figure.canvas.manager)
+            manager.set_window_title("Graphion · BER model")
         self.axes = self.figure.add_axes((0.02, 0.14, 0.96, 0.76))
         self.title = self.figure.suptitle("BerTestbench · model diagram", fontsize=16)
         self.status = self.figure.text(0.5, 0.06, "", ha="center", fontsize=11)

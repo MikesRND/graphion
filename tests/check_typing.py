@@ -1,5 +1,6 @@
-"""Check expected typing failures: uv run python -m tests.check_typing."""
+"""Check that Pyrefly rejects the invalid authoring fixture."""
 
+import json
 import re
 import subprocess
 import sys
@@ -8,7 +9,8 @@ from tempfile import TemporaryDirectory
 
 
 def main() -> int:
-    fixture = Path(__file__).with_name("typing_invalid_authoring.py.txt")
+    fixture = Path(__file__).resolve().with_name("typing_invalid_authoring.py.txt")
+    project_root = fixture.parents[1]
     source = fixture.read_text()
     expected = [
         (number, match.group(1))
@@ -22,26 +24,31 @@ def main() -> int:
             [
                 sys.executable,
                 "-m",
-                "mypy",
-                # Cached diagnostics can retain a previous temporary path.
-                "--no-incremental",
-                "--follow-imports=silent",
-                "--no-error-summary",
-                "--no-pretty",
-                "--show-error-codes",
-                "--no-color-output",
+                "pyrefly",
+                "check",
+                "--config",
+                "pyproject.toml",
+                "--output-format",
+                "json",
                 str(target),
             ],
-            cwd=Path(__file__).resolve().parents[1],
+            cwd=project_root,
             capture_output=True,
             text=True,
         )
-        diagnostics = [line for line in result.stdout.splitlines() if ": note:" not in line]
-        pattern = re.compile(re.escape(str(target)) + r":(\d+): error: .* \[([\w-]+)\]$")
-        actual = [(int(match.group(1)), match.group(2)) for line in diagnostics if (match := pattern.fullmatch(line))]
-    if result.returncode != 1 or result.stderr or actual != expected or len(diagnostics) != len(expected):
+        try:
+            diagnostics = json.loads(result.stdout)["errors"]
+            actual = sorted(
+                (error["line"], error["name"])
+                for error in diagnostics
+                if (project_root / error["path"]).resolve() == target.resolve()
+            )
+        except (ValueError, TypeError, KeyError):
+            print(result.stdout + result.stderr, end="")
+            return 1
+    if result.returncode != 1 or actual != expected or len(diagnostics) != len(expected):
         print(result.stdout + result.stderr, end="")
-        print(f"Expected {expected}; received {actual} (exit {result.returncode})")
+        print(f"Expected {expected}, received {actual} (exit {result.returncode})")
         return 1
     print(f"PASS: {len(expected)} expected authoring typing errors")
     return 0

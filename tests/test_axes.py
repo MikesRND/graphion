@@ -48,10 +48,11 @@ class AxisTests(unittest.TestCase):
 
             class Model(Block):
                 y: Array = Out(Axis("width"))
+                _error = error
 
                 @property
                 def width(self):
-                    raise error
+                    raise self._error
 
                 def __getattr__(self, name):
                     # A property AttributeError must not fall through here.

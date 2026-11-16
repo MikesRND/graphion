@@ -75,13 +75,15 @@ class BerTestbench(Block):
         self.prbs = self.child("prbs", Prbs())
         self.mapper = self.child("mapper", SymbolMapper(constellation=table))
         self.tx = self.child("tx", FirInterpolate(taps=self.taps, factor=self.sps))
-        self.chan = self.child("chan", Awgn(snr_db=snr, signal_power=power, seed=self.seed))
+        # snr_db stays object because describe() reports float | None as opaque; Awgn checks the value at setup.
+        chan = Awgn(snr_db=snr, signal_power=power, seed=self.seed)  # pyrefly: ignore[bad-argument-type]
+        self.chan = self.child("chan", chan)
         self.rx = self.child("rx", FirDecimate(taps=rx_taps, factor=self.sps, phase=self.phase))
         self.demap = self.child("demap", SymbolDemapper(constellation=table))
         self.delay = self.child("delay", SampleDelay(delay=self.bit_delay))
         self.counter = self.child("counter", ErrorCounter(skip=self.skip))
         self._chain = (self.prbs, self.mapper, self.tx, self.chan, self.rx, self.demap)
-        for source, destination in zip(self._chain, self._chain[1:]):
+        for source, destination in zip(self._chain, self._chain[1:], strict=False):
             self.connect(source, "y", destination, "x")
         self.connect(self.demap, "y", self.counter, "x")
         self.connect(self.prbs, "y", self.delay, "x")
@@ -270,6 +272,8 @@ def plot_results(results, *, save=None):
     if save:
         fig.savefig(save, dpi=160)
     else:
+        import matplotlib.pyplot as plt
+
         plt.show()
         plt.close(fig)
 

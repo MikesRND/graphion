@@ -23,6 +23,7 @@ from graphion import (
     WiringError,
 )
 from graphion.profile.numpy_frame import _storage as arrays
+from tests.typing_helpers import misuse
 
 
 def context():
@@ -75,17 +76,17 @@ class ConnectionTests(unittest.TestCase):
             parent.connect(*edge)
         records = parent.connections
         self.assertIsInstance(records, tuple)
-        for record, (source, source_port, destination, destination_port) in zip(records, endpoints):
+        for record, (source, source_port, destination, destination_port) in zip(records, endpoints, strict=False):
             self.assertIs(record.source_block, source)
             self.assertIs(record.destination_block, destination)
             self.assertEqual(record.source_port, source_port)
             self.assertEqual(record.destination_port, destination_port)
             with self.assertRaises(FrozenInstanceError):
                 record.source_port = "other"
-        with self.assertRaises(AttributeError):
-            parent.connections = ()
-        with self.assertRaises(TypeError):
-            records[0] = records[1]
+        with self.assertRaisesRegex(AttributeError, "has no setter"):
+            misuse(parent).connections = ()
+        with self.assertRaisesRegex(TypeError, "does not support item assignment"):
+            misuse(records)[0] = records[1]
         parent.setup(context())
         self.assertIs(parent.connections, records)
         self.assertTrue(np.shares_memory(parent.y, b.y))
@@ -220,8 +221,8 @@ class ConnectionTests(unittest.TestCase):
         parent.setup(context())
         original = fixed.x
         for value in (original, np.ones(4), None):
-            with self.assertRaises(WiringError):
-                fixed.x = value
+            with self.assertRaisesRegex(WiringError, "cannot assign to a connected input"):
+                fixed.x = misuse(value)
             self.assertIs(fixed.x, original)
         with self.assertRaises(WiringError):
             forwarded.x = np.ones(4)

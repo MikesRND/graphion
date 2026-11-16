@@ -74,7 +74,8 @@ def test_awgn_spawned_seed_sequences_give_separate_replayable_streams():
         outputs.append(block.run().copy())
         block.reset()
         np.testing.assert_array_equal(block.run(), outputs[-1])
-    assert not np.array_equal(*outputs)
+    first, second = outputs
+    assert not np.array_equal(first, second)
 
 
 @pytest.mark.parametrize("real", [False, True])

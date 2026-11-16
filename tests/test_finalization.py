@@ -21,9 +21,12 @@ from graphion import (
 )
 from graphion.profile.numpy_frame import _storage as arrays
 from tests.test_connections import Scale, Source, context
+from tests.typing_helpers import misuse
 
 
 class Relay(Block):
+    # target stays Block-typed, as authors declare it, so tests narrow worker with isinstance where they need a
+    # concrete Relay or Scale.
     target: Block = Param()
     x: Array = In(N)
     y: Array = Out(N)
@@ -78,12 +81,14 @@ class FinalizationTests(unittest.TestCase):
         result = model.run()
         np.testing.assert_array_equal(result[0], original * 2)
         np.testing.assert_array_equal(result[1], original * 3)
+        assert isinstance(model.a.worker, Relay) and isinstance(model.b.worker, Relay)
         self.assertIs(result[0], model.a.worker.worker.run())
         self.assertIs(result[1], model.b.worker.worker.run())
 
     def test_missing_inputs_name_the_consumer_and_binding_clears_all_readers(self):
         model = Fanout()
         model.setup(context())
+        assert isinstance(model.a.worker, Relay)
         for node, path in [(model, "root"), (model.a, "root/a"), (model.a.worker.worker, "root/a/worker/worker")]:
             with self.assertRaisesRegex(UnavailablePortError, path + r" .*unset inputs: x"):
                 node.run()
@@ -105,21 +110,24 @@ class FinalizationTests(unittest.TestCase):
         model.x = original
         previous = model.x
         model.run()
-        for value, error in [
-            (np.ones(3), ShapeError),
-            (np.ones(4, dtype=np.float32), DtypeError),
-            (model.a.worker.worker.y, StorageError),
-            (None, DtypeError),
+        assert isinstance(model.a.worker, Relay) and isinstance(model.a.worker.worker, Scale)
+        for value, error, message in [
+            (np.ones(3), ShapeError, "expected shape"),
+            (np.ones(4, dtype=np.float32), DtypeError, "expected dtype"),
+            (model.a.worker.worker.y, StorageError, "storage overlaps"),
+            (None, DtypeError, "expected a NumPy ndarray"),
         ]:
-            with self.subTest(error=error), self.assertRaises(error):
-                model.x = value
+            with self.subTest(error=error), self.assertRaisesRegex(error, message):
+                model.x = misuse(value) if value is None else value
             for node in readers(model):
                 self.assertIs(node.x, previous)
             np.testing.assert_array_equal(model.run()[0], original * 2)
         replacement = np.full(4, 7.0)
-        with patch.object(arrays, "readonly_view", side_effect=RuntimeError("view failure")):
-            with self.assertRaisesRegex(RuntimeError, "view failure"):
-                model.x = replacement
+        with (
+            patch.object(arrays, "readonly_view", side_effect=RuntimeError("view failure")),
+            self.assertRaisesRegex(RuntimeError, "view failure"),
+        ):
+            model.x = replacement
         for node in readers(model):
             self.assertIs(node.x, previous)
         model.x = replacement
@@ -150,6 +158,7 @@ class FinalizationTests(unittest.TestCase):
             self.assertIs(node.x, view)
         np.testing.assert_array_equal(results[0], np.full(4, 8.0))
         self.assertTrue(original.flags.writeable)
+        assert isinstance(model.a.worker, Relay) and isinstance(model.a.worker.worker, Scale)
         self.assertTrue(model.a.worker.worker.y.flags.writeable)
 
     def test_build_wiring_resolves_nested_inputs_in_either_registration_order(self):
@@ -158,26 +167,29 @@ class FinalizationTests(unittest.TestCase):
 
                 class Parent(Block):
                     x: Array = In(N)
+                    _reverse = reverse
+                    _source_kind = source_kind
 
                     def build(self):
                         self.branch = Relay(target=Relay(target=Scale(gain=2.0)))
                         self.source = Source(value=7.0)
                         children = [("branch", self.branch), ("source", self.source)]
-                        for name, child in reversed(children) if reverse else children:
+                        for name, child in reversed(children) if self._reverse else children:
                             self.child(name, child)
-                        if source_kind == "external":
+                        if self._source_kind == "external":
                             self.connect(self, "x", self.branch, "x")
                         else:
                             self.connect(self.source, "y", self.branch, "x")
 
                     def setup(self, ctx):
-                        if source_kind == "external":
+                        if self._source_kind == "external":
                             self.x = np.full(4, 5.0)
 
                 with self.subTest(reverse=reverse, source=source_kind):
                     model = Parent()
                     model.x = np.ones(4)
                     model.setup(context())
+                    assert isinstance(model.branch.worker, Relay) and isinstance(model.branch.worker.worker, Scale)
                     if source_kind == "external":
                         for node in (model.branch, model.branch.worker, model.branch.worker.worker):
                             self.assertIs(node.x, model.x)
@@ -258,6 +270,7 @@ class FinalizationTests(unittest.TestCase):
                 operation()
             self.assertFalse(root._tree.failed)
             self.assertEqual(root.describe()["topology"], "open")
+        assert isinstance(model.worker, Relay)
         for block in (root, model, model.worker, model.worker.worker):
             for operation in (block.run, block.reset):
                 with self.assertRaises(SetupError):
@@ -273,6 +286,7 @@ class FinalizationTests(unittest.TestCase):
             root.connect(a, "y", b, "x")
             root.connect(b, "y", a, "x")
             root.setup(context())
+            assert isinstance(a.worker, Scale) and isinstance(b.worker, Scale)
             self.assertIs(a.worker.x, b.y)
             self.assertIs(b.worker.x, a.y)
 
@@ -305,6 +319,7 @@ class FinalizationTests(unittest.TestCase):
         model = Fanout()
         storage = np.ones(4)
         model.x = storage
+        assert isinstance(model.a.worker, Relay) and isinstance(model.b.worker, Relay)
         model.b.worker.worker.bind_output("y", storage)
         with self.assertRaisesRegex(StorageError, r"external input.*root/b/worker/worker.*\(Out\)"):
             model.setup(context())
@@ -357,6 +372,7 @@ class FinalizationTests(unittest.TestCase):
         original = np.arange(4.0)
         consumer.x = original
         view = consumer.x
+        assert isinstance(consumer.worker, Scale)
         for candidate in (root.state, producer.y, consumer.worker.y):
             with self.assertRaises(StorageError):
                 consumer.x = candidate
@@ -367,6 +383,7 @@ class FinalizationTests(unittest.TestCase):
     def test_interleaved_tree_storage_and_bounded_overlap_checks(self):
         model = Fanout()
         bank = np.empty(12)
+        assert isinstance(model.a.worker, Relay) and isinstance(model.b.worker, Relay)
         model.a.worker.worker.bind_output("y", bank[::3])
         model.b.worker.worker.bind_output("y", bank[1::3])
         source = bank[2::3]
@@ -393,6 +410,7 @@ class FinalizationTests(unittest.TestCase):
     def test_failed_first_bind_keeps_all_forwarded_consumers_unready(self):
         model = Fanout()
         model.setup(context())
+        assert isinstance(model.b.worker, Relay) and isinstance(model.b.worker.worker, Scale)
         with self.assertRaises(StorageError):
             model.x = model.b.worker.worker.y
         for node in readers(model):
@@ -406,6 +424,7 @@ class FinalizationTests(unittest.TestCase):
             gain: float = Control(default=1.0)
 
             def process(self):
+                assert isinstance(self.worker, Scale)
                 self.worker.gain = self.gain
                 self.worker.run()
 
@@ -416,6 +435,7 @@ class FinalizationTests(unittest.TestCase):
         np.testing.assert_array_equal(result, np.arange(4.0))
         model.gain = 3.0
         self.assertIs(model.run(), result)
+        assert isinstance(model.worker, Scale)
         self.assertEqual(model.worker.gain, 3.0)
         np.testing.assert_array_equal(result, np.arange(4.0) * 3)
         model.reset()

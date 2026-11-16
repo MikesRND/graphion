@@ -114,7 +114,7 @@ class DdcExampleTests(unittest.TestCase):
         tb.run()
         tb.reset()
         tb.run()
-        for scope, expected in zip((tb.scope_in, *tb.scopes), first):
+        for scope, expected in zip((tb.scope_in, *tb.scopes), first, strict=False):
             np.testing.assert_array_equal(scope.psd, expected)
 
     def test_nondivisible_frame_is_rejected(self):

@@ -15,13 +15,14 @@ from examples.time_domain import make_plot as time_plot
 from graphion import Ctx
 from graphion.dsp.blocks import ConstellationViewer
 from tests.animation_helpers import run_to_completion
+from tests.typing_helpers import misuse
 
 
 @unittest.skipUnless(importlib.util.find_spec("matplotlib"), "plotting requires optional matplotlib")
 class PlottingTests(unittest.TestCase):
     def test_step_precedes_reading_and_reuses_artists(self):
         data = np.zeros(3)
-        events = []
+        events: list[tuple[str, int, float] | tuple[str]] = []
 
         def step(frame, elapsed_s):
             events.append(("step", frame, elapsed_s))
@@ -156,7 +157,7 @@ class PlottingTests(unittest.TestCase):
         self.assertEqual(len(constellation_panel(viewer, channel=np.int64(1)).series), 1)
         for channel in (-1, 2, 1.0, True):
             with self.subTest(channel=channel), self.assertRaisesRegex(ValueError, r"channel must be .* \[0, 2\)"):
-                constellation_panel(viewer, channel=channel)
+                constellation_panel(viewer, channel=misuse(channel))
         for limit in (0, -1.5, np.nan, np.inf):
             with self.subTest(limit=limit), self.assertRaisesRegex(ValueError, "limit"):
                 constellation_panel(viewer, limit=limit)
@@ -217,13 +218,18 @@ class PlottingTests(unittest.TestCase):
             tb.run()
         plotter = ddc_plot(tb, headless=True)
         self.assertEqual(len(plotter.axes), 4)
-        self.assertEqual(plotter.axes[0].get_subplotspec().colspan.stop, 3)
+        subplot = plotter.axes[0].get_subplotspec()
+        assert subplot is not None
+        self.assertEqual(subplot.colspan.stop, 3)
         sample = tb.stim.sample
         plotter.update(9999, elapsed_s=7.5)
         self.assertEqual(tb.stim.sample, sample + 4096)
         self.assertAlmostEqual(tb.dut.ddc0.tune.freq, tb.freqs[0] + 25_000)
         self.assertIn("175.3 kHz", plotter.axes[0].texts[0].get_text())
-        peak = plotter.lines[1][0].get_xdata()[np.argmax(plotter.lines[1][0].get_ydata())]
+        line = plotter.lines[1][0]
+        x = line.get_xdata()
+        assert isinstance(x, np.ndarray)
+        peak = x[np.argmax(line.get_ydata())]
         self.assertAlmostEqual(peak, -20, delta=0.25)
 
     def test_second_example_uses_overlay_panels(self):

@@ -141,6 +141,7 @@ class BuildTests(unittest.TestCase):
         model = Relay(target=Scale())
         model.x = np.arange(4.0)
         model.setup(context())
+        assert isinstance(model.worker, Scale)
         snapshot = model.describe()
         output, direct, bound = model.y, model.worker.y, model.x
         with patch.object(Block, "_endpoint_source", side_effect=AssertionError("repeat validation")):
@@ -182,7 +183,7 @@ class BuildTests(unittest.TestCase):
             node.bind_output("y", np.empty(4))
         outputs = [node._supplied["y"] for node in (model, branch, leaf)]
         model.setup(context())
-        for node, output in zip((model, branch, leaf), outputs):
+        for node, output in zip((model, branch, leaf), outputs, strict=False):
             self.assertIs(node.y, output)
             self.assertEqual(node.count, 0)
             np.testing.assert_array_equal(node.x, np.arange(4.0))
@@ -229,7 +230,9 @@ class BuildTests(unittest.TestCase):
                 model.setup(ctx)
             snapshot = model.describe()
             self.assertEqual(snapshot["topology"], "complete")
-            self.assertIsNone(snapshot["blocks"][0]["storage"])
+            blocks = snapshot["blocks"]
+            assert isinstance(blocks, list)
+            self.assertIsNone(blocks[0]["storage"])
             self.assertTrue(model._tree.failed)
             self.assertIsNone(model.build())
             self.assertEqual(model.describe(), snapshot)
@@ -267,11 +270,13 @@ class BuildTests(unittest.TestCase):
         parent.setup(context())
         parent.x = np.arange(4.0)
         for node in subtree._walk():
+            assert isinstance(node, (Relay, Scale))
             self.assertIs(node.x, parent.x)
         np.testing.assert_array_equal(subtree.run(), np.arange(4.0) * 2)
         replacement = np.full(4, 3.0)
         parent.x = replacement
         for node in subtree._walk():
+            assert isinstance(node, (Relay, Scale))
             self.assertIs(node.x, parent.x)
         np.testing.assert_array_equal(subtree.run(), replacement * 2)
 

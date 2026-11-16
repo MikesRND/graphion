@@ -3,6 +3,7 @@ import types
 import unittest
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
+from typing import cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -26,6 +27,7 @@ from graphion import (
     StorageError,
 )
 from graphion.dsp.blocks import Gain
+from tests.typing_helpers import misuse
 
 
 @contextmanager
@@ -52,6 +54,7 @@ class DeclarationTests(unittest.TestCase):
                         "value": Param(default=default.copy()),
                     },
                 )
+                assert issubclass(cls, Block)
                 records.append(cls.schema["value"])
             left, right = records
             self.assertIs(left == left, True)
@@ -95,10 +98,10 @@ class DeclarationTests(unittest.TestCase):
                 (field.name, field.kind, field.value_type, field.dtype, field.axes), (name, kind, hint, dtype, axes)
             )
             self.assertIs(field.default, value)
-            with self.assertRaises(FrozenInstanceError):
-                field.default = None
-        with self.assertRaises(TypeError):
-            schema["other"] = schema["x"]
+            with self.assertRaisesRegex(FrozenInstanceError, "cannot assign to field"):
+                misuse(field).default = None
+        with self.assertRaisesRegex(TypeError, "does not support item assignment"):
+            misuse(schema)["other"] = schema["x"]
         self.assertTrue(default.flags.writeable)
         a, b = Model(required=1), Model(required=2)
         default.fill(9)
@@ -119,8 +122,8 @@ class DeclarationTests(unittest.TestCase):
         self.assertIs(Untouched.schema["gain"], Required.schema["gain"])
         self.assertEqual(Gain().gain, 1.0)
         self.assertEqual(Untouched(gain=2).extra, 3)
-        with self.assertRaises(ParamError):
-            Required()
+        with self.assertRaisesRegex(ParamError, "gain: required configuration"):
+            misuse(Required)()
 
     def test_inherited_fields_cannot_be_silently_shadowed(self):
         for attributes in (
@@ -131,9 +134,11 @@ class DeclarationTests(unittest.TestCase):
             {"gain": Control(default=2.0)},
             {"gain": Param(default=2.0), "__annotations__": {"gain": float}},
         ):
-            with self.subTest(attributes=attributes):
-                with self.assertRaisesRegex(DeclarationError, "Shadow.gain"):
-                    type("Shadow", (Gain,), attributes)
+            with (
+                self.subTest(attributes=attributes),
+                self.assertRaisesRegex(DeclarationError, "Shadow.gain"),
+            ):
+                type("Shadow", (Gain,), attributes)
 
     def test_constructor_accepts_only_keyword_configuration(self):
         class Model(Block):
@@ -143,19 +148,20 @@ class DeclarationTests(unittest.TestCase):
             x: Array = In(C, N)
             y: Array = Out(C, N)
 
-        for kwargs in (
-            {},
-            {"factor": 2, "x": np.ones((1, 1))},
-            {"factor": 2, "y": np.ones((1, 1))},
-            {"factor": 2, "count": 1},
-            {"factor": 2, "typo": 1},
+        for kwargs, message in (
+            ({}, "factor: required configuration"),
+            ({"factor": 2, "x": np.ones((1, 1))}, "unknown configuration: x"),
+            ({"factor": 2, "y": np.ones((1, 1))}, "unknown configuration: y"),
+            ({"factor": 2, "count": 1}, "unknown configuration: count"),
+            ({"factor": 2, "typo": 1}, "unknown configuration: typo"),
         ):
-            with self.subTest(kwargs=kwargs), self.assertRaises(ParamError):
-                Model(**kwargs)
-        with self.assertRaises(TypeError):
-            Model(2)
-        model = Model(factor=2, gain="stored without coercion")
-        self.assertEqual(model.gain, "stored without coercion")
+            with self.subTest(kwargs=kwargs), self.assertRaisesRegex(ParamError, message):
+                misuse(Model)(**kwargs)
+        with self.assertRaisesRegex(TypeError, "positional argument"):
+            misuse(Model)(2)
+        raw_gain = "stored without coercion"
+        model = Model(factor=2, gain=raw_gain)  # pyrefly: ignore[bad-argument-type]  # Construction stores values unchecked.
+        self.assertIs(model.gain, raw_gain)
         with self.assertRaises(ParamError):
             model.factor = 3
 
@@ -204,9 +210,11 @@ class DeclarationTests(unittest.TestCase):
             (str, State(default="")),
             (object, State(default=object())),
         ):
-            with self.subTest(hint=hint, kind=field.kind):
-                with self.assertRaisesRegex(DeclarationError, "Mismatch.value"):
-                    type("Mismatch", (Block,), {"__annotations__": {"value": hint}, "value": field})
+            with (
+                self.subTest(hint=hint, kind=field.kind),
+                self.assertRaisesRegex(DeclarationError, "Mismatch.value"),
+            ):
+                type("Mismatch", (Block,), {"__annotations__": {"value": hint}, "value": field})
 
     def test_invalid_array_configuration_defaults_fail_at_definition(self):
         invalid = (
@@ -220,16 +228,18 @@ class DeclarationTests(unittest.TestCase):
         for factory in (Param, Control):
             for hint in (np.ndarray, Array, NDArray[np.float64]):
                 for value in invalid:
-                    with self.subTest(factory=factory, hint=hint, value=value):
-                        with self.assertRaisesRegex(DeclarationError, "Invalid.value default"):
-                            type(
-                                "Invalid",
-                                (Block,),
-                                {
-                                    "__annotations__": {"value": hint},
-                                    "value": factory(default=value),
-                                },
-                            )
+                    with (
+                        self.subTest(factory=factory, hint=hint, value=value),
+                        self.assertRaisesRegex(DeclarationError, "Invalid.value default"),
+                    ):
+                        type(
+                            "Invalid",
+                            (Block,),
+                            {
+                                "__annotations__": {"value": hint},
+                                "value": factory(default=value),
+                            },
+                        )
 
     def test_invalid_array_configuration_preserves_current_control(self):
         class Model(Block):
@@ -242,18 +252,21 @@ class DeclarationTests(unittest.TestCase):
             with self.subTest(value=value):
                 for name in ("p", "c"):
                     with self.assertRaisesRegex(ParamError, name):
-                        Model(**{name: value})
+                        Model(**{name: misuse(value)})
                 with self.assertRaisesRegex(ParamError, "c"):
-                    model.c = value
+                    model.c = misuse(value)
                 self.assertIs(model.c, original)
                 np.testing.assert_array_equal(model.c, [3.0, 4.0])
         for value in ([], [[1, 2], [3, 4]], 1.5, np.array([1 + 2j])):
             with self.subTest(valid=value):
-                model.c = value
+                # The assignment API accepts array-like inputs, and the annotation describes the stored array.
+                model.c = cast(Array, value)
                 np.testing.assert_array_equal(model.c, np.asarray(value))
                 self.assertFalse(model.c.dtype.hasobject)
         # Mutating a declaration's default does not bypass construction checks.
-        Model.schema["p"].default.append([3, 4])
+        default = Model.schema["p"].default
+        assert isinstance(default, list)
+        default.append([3, 4])
         with self.assertRaisesRegex(ParamError, "p"):
             Model()
 
@@ -299,33 +312,39 @@ class DeclarationTests(unittest.TestCase):
 
     def test_invalid_field_arguments_raise_declaration_error(self):
         invalid = (
-            lambda: Param(1),
-            lambda: Param(dtype=float),
-            lambda: Control(1),
-            lambda: Control(dtype=float),
-            lambda: In(default=1),
-            lambda: Out(default=1),
-            lambda: State(),
-            lambda: State(N),
-            lambda: State(default=0, dtype=float),
-            lambda: In(unknown=True),
-            lambda: Param(init=False),
-            lambda: Control(init=False),
+            (Param, (1,), {}, "Param: unsupported field arguments"),
+            (Param, (), {"dtype": float}, "Param: unsupported field arguments"),
+            (Control, (1,), {}, "Control: unsupported field arguments"),
+            (Control, (), {"dtype": float}, "Control: unsupported field arguments"),
+            (In, (), {"default": 1}, "In: unsupported field arguments"),
+            (Out, (), {"default": 1}, "Out: unsupported field arguments"),
+            (State, (), {}, "State: a default is required"),
+            (State, (N,), {}, "State: a default is required"),
+            (State, (), {"default": 0, "dtype": float}, "State: scalar State does not accept dtype"),
+            (In, (), {"unknown": True}, "In: unsupported field arguments"),
+            (Param, (), {"init": False}, "Param: unsupported field arguments"),
+            (Control, (), {"init": False}, "Control: unsupported field arguments"),
         )
-        for factory in invalid:
-            with self.subTest(factory=factory), self.assertRaises(DeclarationError):
-                factory()
+        for factory, args, kwargs, message in invalid:
+            with (
+                self.subTest(factory=factory, args=args, kwargs=kwargs),
+                self.assertRaisesRegex(DeclarationError, message),
+            ):
+                misuse(factory)(*args, **kwargs)
         for factory in (In, Out, State):
             for value in (False, True, None):
-                with self.subTest(factory=factory, init=value), self.assertRaises(DeclarationError):
+                message = f"{factory.__name__}: unsupported field arguments"
+                with self.subTest(factory=factory, init=value), self.assertRaisesRegex(DeclarationError, message):
                     kwargs = {"default": 0} if factory is State else {}
-                    factory(init=value, **kwargs)
+                    factory(init=misuse(value), **kwargs)
 
     def test_missing_and_unresolved_annotations_identify_field(self):
         for annotations in ({}, {"value": "UnknownType"}, {"value": "ClassNotDefinedYet"}):
-            with self.subTest(annotations=annotations):
-                with self.assertRaisesRegex(DeclarationError, "Broken.value"):
-                    type("Broken", (Block,), {"__annotations__": annotations, "value": Param()})
+            with (
+                self.subTest(annotations=annotations),
+                self.assertRaisesRegex(DeclarationError, "Broken.value"),
+            ):
+                type("Broken", (Block,), {"__annotations__": annotations, "value": Param()})
 
     def test_annotation_modes_have_equivalent_schemas(self):
         source = """
@@ -374,8 +393,9 @@ class Model(Block):
                 self.assertEqual(module.Model().value, 3)
 
     def test_inherited_resolution_uses_defining_module_and_class_scope(self):
-        with module_with(
-            """
+        with (
+            module_with(
+                """
 from graphion import Array, Block, In, Param
 Alias = int
 ArrayAlias = Array
@@ -384,9 +404,9 @@ class Parent(Block):
     p: "Alias" = Param(default=1)
     x: "ArrayAlias" = In()
 """,
-            "_graphion_parent",
-        ) as parent:
-            with module_with(
+                "_graphion_parent",
+            ) as parent,
+            module_with(
                 """
 from _graphion_parent import Parent
 from graphion import Param
@@ -395,11 +415,12 @@ class Child(Parent):
     q: "ClassAlias" = Param(default=2.)
 """,
                 "_graphion_child",
-            ) as child:
-                self.assertIs(child.Child.schema["p"], parent.Parent.schema["p"])
-                self.assertIs(child.Child.schema["p"].value_type, int)
-                self.assertIs(child.Child.schema["q"].value_type, float)
-                self.assertEqual(child.Child.schema["x"].value_type, Array)
+            ) as child,
+        ):
+            self.assertIs(child.Child.schema["p"], parent.Parent.schema["p"])
+            self.assertIs(child.Child.schema["p"].value_type, int)
+            self.assertIs(child.Child.schema["q"].value_type, float)
+            self.assertEqual(child.Child.schema["x"].value_type, Array)
 
     def test_unquoted_local_annotation_preserves_the_type_object(self):
         with module_with("""
@@ -421,11 +442,12 @@ Model, ValueType = make()
             ("from __future__ import annotations\n", "LocalType"),
             ("from __future__ import annotations\n", '"LocalType"'),
         ):
-            with self.subTest(prefix=prefix, annotation=annotation):
-                with self.assertRaisesRegex(DeclarationError, "Local.value"):
-                    with module_with(
-                        prefix
-                        + """
+            with (
+                self.subTest(prefix=prefix, annotation=annotation),
+                self.assertRaisesRegex(DeclarationError, "Local.value"),
+                module_with(
+                    prefix
+                    + """
 from graphion import Block, Param
 def make():
     class LocalType:
@@ -435,13 +457,15 @@ def make():
     return Local
 make()
 """.replace("ANNOTATION", annotation)
-                    ):
-                        pass
+                ),
+            ):
+                pass
 
     def test_generic_parameters_resolve_in_all_annotation_modes(self):
         for prefix, annotation in (("", "T"), ("", '"T"'), ("from __future__ import annotations\n", "T")):
-            with self.subTest(prefix=prefix, annotation=annotation):
-                with module_with(
+            with (
+                self.subTest(prefix=prefix, annotation=annotation),
+                module_with(
                     prefix
                     + """
 from graphion import Block, Param
@@ -450,10 +474,11 @@ class Model[T](Block):
 class Child[U](Model):
     other: U = Param()
 """.replace("ANNOTATION", annotation)
-                ) as module:
-                    self.assertIs(module.Model.schema["value"].value_type, module.Model.__type_params__[0])
-                    self.assertIs(module.Child.schema["value"], module.Model.schema["value"])
-                    self.assertIs(module.Child.schema["other"].value_type, module.Child.__type_params__[0])
+                ) as module,
+            ):
+                self.assertIs(module.Model.schema["value"].value_type, module.Model.__type_params__[0])
+                self.assertIs(module.Child.schema["value"], module.Model.schema["value"])
+                self.assertIs(module.Child.schema["other"].value_type, module.Child.__type_params__[0])
 
     def test_multiple_block_inheritance_is_rejected(self):
         class Other(Block):

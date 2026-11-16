@@ -45,7 +45,9 @@ def validate_output_layout(array, name):
     """Conservatively prove that supplied output elements have disjoint bytes."""
     if 0 in array.shape:
         return
-    dimensions = sorted((abs(stride), length) for stride, length in zip(array.strides, array.shape) if length > 1)
+    dimensions = sorted(
+        (abs(stride), length) for stride, length in zip(array.strides, array.shape, strict=False) if length > 1
+    )
     span = array.dtype.itemsize
     for stride, length in dimensions:
         if stride < span:
@@ -103,7 +105,11 @@ def require_disjoint(a, a_name, b, b_name):
     if not np.may_share_memory(a, b):
         return
     try:
-        overlaps = np.shares_memory(a, b, max_work=OVERLAP_MAX_WORK)
+        overlaps = np.shares_memory(
+            a,
+            b,
+            max_work=OVERLAP_MAX_WORK,  # pyrefly: ignore[bad-argument-type]  # NumPy accepts a positive work limit.
+        )
     except np.exceptions.TooHardError as exc:
         raise StorageError(f"overlap check exhausted its work limit: {a_name} and {b_name}") from exc
     if overlaps:

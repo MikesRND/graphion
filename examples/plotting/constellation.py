@@ -17,7 +17,7 @@ from .live import PlotPanel, PlotSeries
 def constellation_panel(
     viewer: ConstellationViewer,
     *,
-    channel: int = 0,
+    channel: int | np.integer = 0,
     reference: ArrayLike | None = None,
     limit: float | None = None,
     title: str = "",
