@@ -84,10 +84,12 @@ types, tests, and documentation.
 | `uv run --locked just test tests/test_typing_check.py` | Verify the expected diagnostics for invalid authoring. |
 | `uv run --locked just docs` | Check documentation links, anchors, and Python examples. |
 | `uv run --locked just build` | Build the wheel and source distribution. |
+| `uv run --locked just commits origin/main` | Check Conventional Commit subjects since the base ref. |
 | `uv run --locked just ci` | Run the development gate and build distributions. |
 
 The [programming reference](docs/reference/index.md) defines the normative API.
 Start with the [documentation index](docs/index.md) for the quickstart and guides.
 
 GitHub Actions runs the same checks and distribution build on Ubuntu with
-Python 3.12. Plotting tests use Matplotlib's headless Agg backend.
+Python 3.12. Pull requests also check Conventional Commit subjects against
+the base branch. Plotting tests use Matplotlib's headless Agg backend.
