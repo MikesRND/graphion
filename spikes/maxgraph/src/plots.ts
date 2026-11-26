@@ -95,11 +95,12 @@ function hz(value: number): string {
 }
 
 export function drawProbe(canvas: HTMLCanvasElement, payload: ProbePayload) {
-  if (payload.unrun) {
+  if (payload.unrun || payload.missing) {
+    const text = payload.missing ? 'not recorded' : 'not run yet';
     const { g, width, height } = prepare(canvas);
     g.fillStyle = '#8a97a8';
     g.font = '11px system-ui, sans-serif';
-    g.fillText('not run yet', (width - g.measureText('not run yet').width) / 2, height / 2);
+    g.fillText(text, (width - g.measureText(text).width) / 2, height / 2);
   } else if (payload.view === 'constellation' && payload.re && payload.im) {
     drawConstellation(canvas, payload.re, payload.im);
   } else if (payload.view === 'spectrum' && payload.db) {

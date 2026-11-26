@@ -18,19 +18,26 @@ npm --prefix spikes/maxgraph run build
 ```
 
 ```bash
-uv run --locked python spikes/maxgraph/server.py --model ddc
+uv run --locked python -m spikes.inspection.server --model ddc
 ```
 
 Open <http://127.0.0.1:8765/>. `--model ber` serves the BER testbench instead;
 `--port` changes the port. The DDC testbench is the better demonstration
-because it has three levels of hierarchy.
+because it has three levels of hierarchy. The server and everything behind it
+live in [`../inspection`](../inspection/README.md).
 
 ## What to try
 
 - Click a block, port or wire: the inspector shows its declared facts and, for
   blocks, what the last run observed. The `source` row is a link that opens
   the defining class in VS Code.
-- **Step** and **Run** call the root's `run()` once per tick.
+- **Run** lets the model free-run on its own thread while the page watches;
+  **Step** runs one root iteration.
+- **Call tracing** switches observation of block calls on or off. Off costs
+  the model nothing; on gives the call-order badges, timings and call strip.
+- **Step call** pauses before each block's call. The block about to run is
+  outlined and plots whose data is from the previous tick are dimmed.
+- **Record** saves every tick for replay; a served recording gets a scrubber.
 - In the inspector, the `time` / `spectrum` / `constellation` buttons add a
   scope for that port. `in block` draws the port inside the block.
 - `plot` beside an array parameter fetches it on demand (try FIR taps).
@@ -43,19 +50,20 @@ because it has three levels of hierarchy.
 
 | File | Role |
 | --- | --- |
-| `server.py` | Builds the model, serves `describe()` plus extra facts, ticks the root, traces calls, decimates probe data. Standard library and NumPy only. |
 | `src/layout.ts` | Description to ELK graph and back. No canvas code. |
 | `src/main.ts` | maxGraph cells, labels, overlays, inspector, scopes, run loop. |
 | `src/plots.ts` | Canvas line and constellation plots. |
 | `check.mjs` | Drives the page in headless Chrome with real mouse input. |
 
 `node check.mjs http://127.0.0.1:8765/ screenshots` (from this folder, server
-running) repeats the checks and rewrites `screenshots/`.
+running) repeats the checks and writes `screenshots/`. Add `replay` when the
+server is serving a recording. `bash spikes/inspection/verify.sh` from the
+repository root runs every check with its own servers.
 
 ## Results
 
-Checked in headless Chrome against both models: 8 of 8 checks on BER and 11 of
-11 on DDC, each run twice.
+Checked in headless Chrome: 14 of 14 checks on live BER, 17 of 17 on live DDC,
+and 9 of 9 on a DDC recording with no model loaded.
 
 - **Ports, wires, containers**: ports are child cells; ELK supplies positions
   and orthogonal bend points; composites are swimlane containers.
@@ -67,8 +75,6 @@ Checked in headless Chrome against both models: 8 of 8 checks on BER and 11 of
   about 1.5 to 1.8 ms of UI time with four in-block plots.
 - **Locked topology**: delete, connect, clone and rename are all off; blocks
   can still be moved.
-- **Call tracing**: `sys.monitoring` observes `run`, `run_output` and
-  `run_update` from outside the framework, with no change to the run path.
 
 ### What did not work as assumed
 
@@ -84,7 +90,8 @@ Checked in headless Chrome against both models: 8 of 8 checks on BER and 11 of
 
 ### What the description was missing
 
-`describe()` was enough for structure. The server adds what the UI needed:
+`describe()` was enough for structure. The inspection layer's document adds
+what the UI needed:
 
 - Source file and line, and the class's own docstring.
 - Per-port rate. It comes from the DSP `stream_ports` convention, so a block
@@ -93,7 +100,7 @@ Checked in headless Chrome against both models: 8 of 8 checks on BER and 11 of
 - Whether an output holds data yet. Output storage is unspecified before the
   first run and after reset, so the spike shows "not run yet" from its own
   tick count; the framework does not track this.
-- A display hint. The spike hard-codes that `Spectrum.psd` and
+- A display hint. A registry in the layer says that `Spectrum.psd` and
   `ConstellationViewer.points` are worth drawing inside the block.
 
 ## Not covered

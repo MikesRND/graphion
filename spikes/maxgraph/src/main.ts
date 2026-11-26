@@ -6,6 +6,7 @@
 import '@maxgraph/core/css/common.css';
 import {
   Cell,
+  CellHighlight,
   CellOverlay,
   type CellStyle,
   type EventObject,
@@ -28,6 +29,7 @@ import type {
   LiveValue,
   ModelResponse,
   Observation,
+  Position,
   ProbePayload,
   ProbeSpec,
   TraceRecord,
@@ -52,13 +54,6 @@ interface Scope {
   stats: HTMLElement;
 }
 
-// Which port a display block shows by default. The description carries no such
-// hint today, so the spike keys it on the definition name.
-const DISPLAY_HINTS: Record<string, { port: string; view: ProbePayload['view'] }> = {
-  ConstellationViewer: { port: 'points', view: 'constellation' },
-  Spectrum: { port: 'psd', view: 'array' },
-};
-
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (text: unknown) =>
   String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -76,6 +71,10 @@ let currentRoot = 'root';
 let selection: CellInfo | null = null;
 let lastTrace: TraceRecord[] = [];
 let lastLive: LiveBlock | null = null;
+let position: Position = { tick: 0, state: 'idle', at: null, error: null, trace: false, total: null, ticks_per_s: null, recording: null };
+let capabilities = new Set<string>();
+// The adapter says what it can do; the page offers nothing it did not advertise.
+const can = (name: string) => capabilities.has(name);
 let running = false;
 let showSignalLabels = true;
 let scopeCounter = 0;
@@ -142,7 +141,7 @@ function declaration(path: string, name: string): Declaration | undefined {
 function signalText(path: string, port: string): string {
   const decl = declaration(path, port);
   if (!decl) return '';
-  const rate = model.extras[path]?.ports[port]?.rate;
+  const rate = model.facts[path]?.ports[port]?.rate;
   return `${dtypeText(decl)} ${shapeText(decl.shape ?? decl.declared_shape)}${rate ? ` @ ${hz(rate.hz)}` : ''}`;
 }
 
@@ -152,7 +151,7 @@ function signalLabel(path: string, port: string): string {
   if (!decl) return '';
   const short = dtypeText(decl).replace('complex', 'c').replace('float', 'f').replace('uint', 'u').replace('int', 'i');
   const dims = (decl.shape ?? decl.declared_shape ?? []).map(dimText).join('×');
-  const rate = model.extras[path]?.ports[port]?.rate;
+  const rate = model.facts[path]?.ports[port]?.rate;
   return `${short} [${dims}]${rate ? `\n${hz(rate.hz)}` : ''}`;
 }
 
@@ -235,7 +234,7 @@ const tooltipFor = (cell: Cell) => {
   }
   if (value.kind === 'port') return `${value.path}.${value.port}<br>${esc(signalText(value.path, value.port))}`;
   const block = blocks.get(value.path)!;
-  const doc = model.extras[value.path]?.doc;
+  const doc = model.facts[value.path]?.doc;
   return `<b>${esc(value.path)}</b><br>${esc(block.definition.module)}.${esc(block.definition.qualname)}${doc ? `<br>${esc(doc)}` : ''}`;
 };
 if (tooltips) tooltips.getTooltipForCell = tooltipFor;
@@ -503,14 +502,16 @@ function applyTrace() {
     const order = (siblings.get(parentKey) ?? 0) + 1;
     siblings.set(parentKey, order);
     stack.push(`${record.path}#${record.order}`);
-    if (record.depth === 0) total += record.us;
+    // A call still open in a paused tick has no duration yet; it counts as zero so far.
+    const us = record.us ?? 0;
+    total = Math.max(total, record.t0_us + us);
     const seen = byPath.get(record.path);
     if (seen) {
       seen.count += 1;
-      seen.us += record.us;
-      seen.self += record.self_us;
+      seen.us += us;
+      seen.self += record.self_us ?? 0;
     } else {
-      byPath.set(record.path, { order, count: 1, us: record.us, self: record.self_us });
+      byPath.set(record.path, { order, count: 1, us, self: record.self_us ?? 0 });
     }
   }
   for (const [path, label] of labels) {
@@ -544,34 +545,80 @@ function renderTrace(total: number) {
     .filter((r) => r.depth < 4)
     .map((r) => {
       const left = (r.t0_us / total) * 100;
-      const width = Math.max(0.3, (r.us / total) * 100);
-      const title = `${r.path} · ${r.entry} · ${micros(r.us)} (self ${micros(r.self_us)})`;
-      return `<div class="${r.path === selected ? 'sel' : ''}" data-path="${esc(r.path)}" title="${esc(title)}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;top:${r.depth * 15}px">${esc(shortName(r.path))}</div>`;
+      const open = r.us === undefined;
+      const width = Math.max(0.3, (((r.us ?? total - r.t0_us) || 0) / total) * 100);
+      const title = open ? `${r.path} · ${r.entry} · still running` : `${r.path} · ${r.entry} · ${micros(r.us!)} (self ${micros(r.self_us ?? 0)})`;
+      return `<div class="${r.path === selected ? 'sel' : ''}${open ? ' open' : ''}" data-path="${esc(r.path)}" title="${esc(title)}" style="left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;top:${r.depth * 15}px">${esc(shortName(r.path))}</div>`;
     })
     .join('');
 }
 
+// Data is stale when its producer has not run in the tick being looked at.
+function isStale(payload: ProbePayload): boolean {
+  if (!payload.stamp || payload.stamp.basis === 'recorded') return false;
+  return payload.stamp.tick < (position.state === 'paused' ? position.tick + 1 : position.tick);
+}
+
+function probeText(payload: ProbePayload): string {
+  if (payload.missing) return `not in this recording (${payload.missing})`;
+  if (payload.unrun) return 'not run yet';
+  const s = payload.stats!;
+  let text = `${payload.dtype} [${payload.shape!.join(' × ')}] · peak ${s.peak?.toPrecision(3) ?? '–'} · rms ${s.rms?.toPrecision(3) ?? '–'}`;
+  if (s.nonfinite) text += ` · ${s.nonfinite} non-finite`;
+  if (payload.stamp) text += ` · tick ${payload.stamp.tick} ${payload.stamp.basis}${isStale(payload) ? ' · stale' : ''}`;
+  return text;
+}
+
+const pausedMark = new CellHighlight(graph, '#e8590c', 3);
+
+function renderPosition() {
+  const total = position.total != null ? ` · ${position.index} of ${position.total}` : '';
+  $('ticks').textContent = `tick ${position.tick.toLocaleString('en-US')}${total}`;
+  const rate = position.ticks_per_s != null && position.state === 'running' ? `${Math.round(position.ticks_per_s).toLocaleString('en-US')} ticks/s` : '';
+  const where = position.state === 'paused' && position.at ? `paused before ${position.at.path} · ${position.at.entry}` : position.state;
+  $('status').textContent = [where, rate].filter(Boolean).join(' · ');
+  if (position.state === 'faulted') $('error').textContent = `Model failed: ${position.error}. Reset to continue.`;
+  $('tracebtn').classList.toggle('on', position.trace);
+  $('record').classList.toggle('on', !!position.recording);
+  $('record').textContent = position.recording ? `Stop recording (${position.recording.ticks})` : 'Record';
+  const seek = $<HTMLInputElement>('seek');
+  if (position.total != null && document.activeElement !== seek) {
+    seek.max = String(position.total);
+    seek.value = String(position.index ?? 0);
+  }
+  // Mark the block about to run; inside a collapsed composite, mark the composite.
+  let cell: Cell | undefined;
+  if (position.state === 'paused' && position.at) {
+    const parts = position.at.path.split('/');
+    for (let n = parts.length; n > 0 && !cell; n--) {
+      const candidate = cellByPath.get(parts.slice(0, n).join('/'));
+      if (candidate && graph.view.getState(candidate)) cell = candidate;
+    }
+  }
+  const state = cell ? graph.view.getState(cell) : null;
+  if (state) pausedMark.highlight(state);
+  else pausedMark.hide();
+}
+
 function applyObservation(result: Observation) {
   $('error').textContent = '';
-  $('ticks').textContent = `tick ${result.ticks.toLocaleString('en-US')}`;
-  if (result.us_per_tick != null) $('cost').textContent = `${micros(result.us_per_tick)} / tick`;
-  if (result.trace) {
-    lastTrace = result.trace;
-    applyTrace();
-  }
+  position = result.position;
+  renderPosition();
+  lastTrace = result.trace ?? [];
+  applyTrace();
   for (const scope of scopes) {
     const payload = result.probes[scope.spec.id];
     if (!payload) continue;
     drawProbe(scope.canvas, payload);
-    const s = payload.stats;
-    scope.stats.textContent =
-      `${payload.dtype} [${payload.shape.join(' × ')}] · peak ${s.peak?.toPrecision(3) ?? '–'} · rms ${s.rms?.toPrecision(3) ?? '–'}` +
-      (s.nonfinite ? ` · ${s.nonfinite} non-finite` : '');
+    scope.stats.textContent = probeText(payload);
   }
   for (const [path] of inBlock) {
     const payload = result.probes[`blk:${path}`];
     const canvas = labels.get(path)?.canvas;
-    if (payload && canvas) drawProbe(canvas, payload);
+    if (!payload || !canvas) continue;
+    drawProbe(canvas, payload);
+    canvas.style.opacity = isStale(payload) ? '0.35' : '1';
+    canvas.title = probeText(payload);
   }
   lastLive = result.live;
   renderLive();
@@ -585,38 +632,64 @@ async function refresh() {
   }
 }
 
-async function tick() {
+let uiCost = 0;
+let roundTrip = 0;
+
+// One request, applied to the page, with the cost of each half measured.
+async function exchange(path: string, body: object = {}) {
   const started = performance.now();
-  const result = await api<Observation>('/api/tick', { n: 1, ...observeRequest() });
+  const result = await api<Observation>(path, { ...body, ...observeRequest() });
   const received = performance.now();
   applyObservation(result);
   uiCost = 0.8 * uiCost + 0.2 * (performance.now() - received);
   roundTrip = 0.8 * roundTrip + 0.2 * (received - started);
-  $('cost').textContent += ` · round trip ${roundTrip.toFixed(1)} ms · UI ${uiCost.toFixed(1)} ms`;
+  $('cost').textContent = `round trip ${roundTrip.toFixed(1)} ms · UI ${uiCost.toFixed(1)} ms`;
 }
 
-let uiCost = 0;
-let roundTrip = 0;
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function loop() {
-  while (running) {
-    try {
-      await tick();
-    } catch (error) {
-      showError(error);
-      setRunning(false);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 60));
-  }
-}
-
-function setRunning(value: boolean) {
-  if (running === value) return;
+function showRunning(value: boolean) {
   running = value;
   $('run').textContent = running ? 'Pause' : 'Run';
   $('run').classList.toggle('on', running);
-  if (running) void loop();
 }
+
+// A live model free-runs on its own thread and the page only watches it. A
+// recording has no thread, so there the page steps it at the display rate.
+async function watch() {
+  const freeRun = can('execution.free_run');
+  while (running) {
+    try {
+      await exchange(freeRun ? '/api/observe' : '/api/advance', freeRun ? {} : { mode: 'tick' });
+    } catch (error) {
+      showError(error);
+      showRunning(false);
+      return;
+    }
+    if (position.state !== 'running' && (freeRun || position.state !== 'idle')) showRunning(false);
+    await pause(66);
+  }
+}
+
+async function setRunning(value: boolean) {
+  if (running === value) return;
+  showRunning(value);
+  try {
+    if (can('execution.free_run')) await exchange('/api/run', { on: value });
+    if (value) void watch();
+  } catch (error) {
+    showError(error);
+    showRunning(false);
+  }
+}
+
+async function step(mode: 'tick' | 'call') {
+  await setRunning(false);
+  if (mode === 'call' && !position.trace) await exchange('/api/trace', { on: true });
+  await exchange('/api/advance', { mode });
+}
+
+const tick = () => step('tick');
 
 function showError(error: unknown) {
   $('error').textContent = error instanceof Error ? error.message : String(error);
@@ -664,7 +737,7 @@ function renderInspector() {
   }
   const path = selection.path;
   const block = blocks.get(path)!;
-  const extra = model.extras[path];
+  const extra = model.facts[path];
   const composite = block.children.length > 0;
   const ports = (kind: 'In' | 'Out') =>
     block.declarations
@@ -689,6 +762,7 @@ function renderInspector() {
   const controls = Object.entries(block.controls).map(([name, value]): [string, string] => [
     name,
     value.kind === 'literal' && typeof value.value === 'number'
+      && can('values.write')
       ? `<input class="ctl" type="number" step="any" data-act="control" data-path="${esc(path)}" data-name="${esc(name)}" value="${esc(value.value)}">`
       : `<code>${esc(valueText(value))}</code>`,
   ]);
@@ -729,8 +803,8 @@ function renderLive() {
   const calls = lastTrace.filter((r) => r.path === path);
   const pairs: [string, string][] = [];
   if (calls.length) {
-    const us = calls.reduce((sum, r) => sum + r.us, 0);
-    const self = calls.reduce((sum, r) => sum + r.self_us, 0);
+    const us = calls.reduce((sum, r) => sum + (r.us ?? 0), 0);
+    const self = calls.reduce((sum, r) => sum + (r.self_us ?? 0), 0);
     pairs.push(['last tick', `${calls.map((r) => r.entry).join(', ')} · ${micros(us)}${self !== us ? ` (self ${micros(self)})` : ''}`]);
   } else {
     pairs.push(['last tick', '<span class="muted">not called</span>']);
@@ -796,7 +870,7 @@ async function showValue(path: string, name: string) {
 graph.getSelectionModel().addListener(InternalEvent.CHANGE, () => {
   selection = info(graph.getSelectionCell());
   renderInspector();
-  renderTrace(lastTrace.filter((r) => r.depth === 0).reduce((sum, r) => sum + r.us, 0));
+  renderTrace(lastTrace.reduce((end, r) => Math.max(end, r.t0_us + (r.us ?? 0)), 0));
   void refresh();
 });
 
@@ -872,20 +946,26 @@ $('trace').addEventListener('click', (event) => {
   const path = (event.target as HTMLElement).dataset.path;
   if (path) void reveal(path);
 });
-$('run').addEventListener('click', () => setRunning(!running));
-$('step').addEventListener('click', () => {
-  setRunning(false);
-  tick().catch(showError);
-});
+$('run').addEventListener('click', () => void setRunning(!running));
+$('step').addEventListener('click', () => step('tick').catch(showError));
+$('stepcall').addEventListener('click', () => step('call').catch(showError));
 $('reset').addEventListener('click', () => {
-  setRunning(false);
-  api<Observation>('/api/reset', observeRequest())
-    .then((result) => {
-      lastTrace = [];
-      applyTrace();
-      applyObservation(result);
+  setRunning(false)
+    .then(() => exchange('/api/reset'))
+    .catch(showError);
+});
+$('tracebtn').addEventListener('click', () => exchange('/api/trace', { on: !position.trace }).catch(showError));
+$('record').addEventListener('click', () => {
+  const saved = position.recording;
+  exchange('/api/record', { on: !saved })
+    .then(() => {
+      if (saved) $('status').textContent = `saved ${saved.ticks} ticks to ${saved.path}`;
     })
     .catch(showError);
+});
+$<HTMLInputElement>('seek').addEventListener('input', (event) => {
+  showRunning(false);
+  exchange('/api/seek', { index: Number((event.target as HTMLInputElement).value) }).catch(showError);
 });
 $('fit').addEventListener('click', fitView);
 $('expand').addEventListener('click', () => {
@@ -910,19 +990,28 @@ $<HTMLInputElement>('search').addEventListener('keydown', (event) => {
 });
 
 async function start() {
-  model = await api<ModelResponse>('/api/model');
+  model = await api<ModelResponse>('/api/document');
+  capabilities = new Set(model.capabilities);
+  position = model.position;
   blocks = new Map(model.description.blocks.map((b) => [b.path, b]));
+  const replay = can('execution.seek');
   $('title').textContent = `${blocks.get('root')!.definition.qualname}`;
-  $('subtitle').textContent = `${model.description.profile} · topology ${model.description.topology} · ${blocks.size} blocks`;
+  $('subtitle').textContent = `${replay ? 'recording' : 'live'} · ${model.description.profile} · ${blocks.size} blocks`;
+  $('stepcall').hidden = !can('execution.call_step');
+  $('tracebtn').hidden = !can('trace.toggle');
+  $('record').hidden = !can('record');
+  $('seek').hidden = !replay;
+  if (replay) $('reset').textContent = 'Rewind';
   for (const block of blocks.values()) {
     // Start with the top two levels open; deeper composites open on demand.
     if (block.children.length && block.path.split('/').length > 2) collapsed.add(block.path);
-    const hint = DISPLAY_HINTS[block.definition.qualname];
+    // Which port a display block draws comes from the document, not from this page.
+    const hint = model.facts[block.path]?.display;
     if (hint && declaration(block.path, hint.port)) inBlock.set(block.path, hint);
   }
   await rebuild(true);
   // Exposed for the spike's own browser checks.
-  Object.assign(window, { spike: { graph, cellByPath, portCells, reveal, enter, toggleCollapsed, tick, select, state: () => ({ currentRoot, selection, uiCost, roundTrip }) } });
+  Object.assign(window, { spike: { graph, cellByPath, portCells, reveal, enter, toggleCollapsed, tick, step, select, state: () => ({ currentRoot, selection, uiCost, roundTrip, position }) } });
 }
 
 start().catch(showError);

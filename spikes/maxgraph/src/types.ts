@@ -53,17 +53,33 @@ export interface Description {
   unresolved: { path: string; declaration: string | null; fact: string; reason: string }[];
 }
 
-export interface Extras {
+export interface Facts {
   source: { text: string; uri: string } | null;
   doc: string | null;
-  ports: Record<string, { nbytes: number; rate?: { text: string; hz: number } | null }>;
+  display: { port: string; view: ProbePayload['view'] } | null;
+  ports: Record<string, { nbytes: number; rate?: { text: string; hz: number } | null; producer?: string | null }>;
+}
+
+export interface Position {
+  tick: number;
+  state: 'idle' | 'running' | 'paused' | 'faulted' | 'ended';
+  at: { path: string; entry: string } | null;
+  error: string | null;
+  trace: boolean;
+  total: number | null;
+  index?: number;
+  ticks_per_s: number | null;
+  recording: { path: string; ticks: number } | null;
 }
 
 export interface ModelResponse {
+  schema: string;
   model: string;
   description: Description;
-  extras: Record<string, Extras>;
-  ticks: number;
+  facts: Record<string, Facts>;
+  origins: Record<string, string>;
+  capabilities: string[];
+  position: Position;
 }
 
 export interface TraceRecord {
@@ -72,15 +88,18 @@ export interface TraceRecord {
   depth: number;
   order: number;
   t0_us: number;
-  us: number;
-  self_us: number;
+  // Absent while the call is still open, which happens when a tick is paused part-way.
+  us?: number;
+  self_us?: number;
 }
 
 export interface ProbePayload {
   view: 'time' | 'array' | 'spectrum' | 'constellation';
-  dtype: string;
-  shape: number[];
-  stats: { nonfinite: number; peak: number | null; rms: number | null };
+  dtype?: string;
+  shape?: number[];
+  stats?: { nonfinite: number; peak: number | null; rms: number | null };
+  stamp?: { tick: number; basis: 'observed' | 'assumed' | 'recorded' };
+  missing?: string;
   re?: number[];
   im?: number[];
   y?: number[];
@@ -102,11 +121,11 @@ export interface LiveBlock {
 }
 
 export interface Observation {
-  ticks: number;
+  position: Position;
   probes: Record<string, ProbePayload>;
   live: LiveBlock | null;
-  trace?: TraceRecord[];
-  us_per_tick?: number | null;
+  trace: TraceRecord[];
+  trace_partial: boolean;
   error?: string;
 }
 

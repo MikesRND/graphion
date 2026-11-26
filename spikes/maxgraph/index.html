@@ -50,6 +50,9 @@
   #trace { position: relative; height: 62px; margin-top: 4px; }
   #trace div { position: absolute; height: 13px; border-radius: 2px; background: #cfe0ff; border: 1px solid #fff; overflow: hidden; font-size: 10px; line-height: 12px; padding: 0 3px; white-space: nowrap; cursor: pointer; }
   #trace div.sel { background: #7b9cff; color: #fff; }
+  #trace div.open { background: #ffd8a8; }
+  #status { color: var(--observed); }
+  [hidden] { display: none !important; }
   #error { color: #b42318; }
   .blk { position: relative; width: 100%; height: 100%; text-align: center; color: var(--text); font: 12px/1.25 system-ui, sans-serif; overflow: hidden; }
   .blk-name { font-weight: 600; padding-top: 6px; }
@@ -66,8 +69,13 @@
   <span class="sep"></span>
   <button id="run" title="Run or pause">Run</button>
   <button id="step" title="Advance one root iteration">Step</button>
+  <button id="stepcall" title="Run to the next block call; switches call tracing on">Step call</button>
   <button id="reset" title="Reset the model">Reset</button>
+  <button id="tracebtn" title="Observe every block call. Off costs the model nothing.">Call tracing</button>
+  <button id="record" title="Save every tick's outputs for replay">Record</button>
+  <input id="seek" type="range" min="0" max="0" step="1" style="width:170px" aria-label="Recorded tick" hidden>
   <span class="mono" id="ticks">tick 0</span>
+  <span id="status"></span>
   <span class="muted" id="cost"></span>
   <span class="sep"></span>
   <span id="crumbs"></span>
