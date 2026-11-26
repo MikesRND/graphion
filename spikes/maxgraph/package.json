@@ -1,0 +1,19 @@
+{
+  "name": "graphion-maxgraph-spike",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --format=esm --sourcemap --loader:.gif=dataurl --outdir=dist",
+    "watch": "esbuild src/main.ts --bundle --format=esm --sourcemap --loader:.gif=dataurl --outdir=dist --watch",
+    "types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@maxgraph/core": "0.25.2",
+    "elkjs": "0.12.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "puppeteer-core": "25.19.0",
+    "typescript": "7.0.2"
+  }
+}
