@@ -19,6 +19,7 @@ import numpy as np
 
 from spikes.inspection import document
 from spikes.inspection.adapter import Unsupported
+from spikes.inspection.snapshots import Frame, Snapshot, take
 
 FORMAT = "graphion.inspection.recording/0"
 
@@ -102,6 +103,9 @@ class ReplayAdapter:
         self._producers = document.producers(self._document["description"])
         self.name = self._document["model"]
         self._cursor = 0
+        self._moves = 0
+        self._serial = 0
+        self._latest = None
 
     def _record(self):
         return self._ticks[self._cursor - 1] if self._cursor else None
@@ -143,34 +147,63 @@ class ReplayAdapter:
             raise KeyError("before the first recorded tick")
         return self._array(record["frames"][self._producers.get(address, address)])
 
-    def live(self, path):
-        """Return the recorded Control and State summaries of one block."""
-        record = self._record()
-        return record["live"].get(path, {"controls": {}, "state": {}}) if record else {"controls": {}, "state": {}}
+    def _frame(self, address, channel, record):
+        if record is None:
+            return Frame(missing="before the first recorded tick")
+        entry = record["frames"].get(self._producers.get(address, address))
+        if entry is None:
+            return Frame(missing="not recorded")
+        # Every recorded frame belongs to a completed tick.
+        return take(self._array(entry), channel, {"tick": record["tick"], "basis": "recorded"})
 
-    def stamp(self, path):
-        """Every recorded frame belongs to a completed tick."""
-        record = self._record()
-        return {"tick": record["tick"], "basis": "recorded"} if record else None
+    def snapshot(self, ports=(), blocks=(), since=None):
+        """Return the snapshot at the cursor, or None when ``since`` already names it.
 
-    def spans(self):
-        """Return the recorded spans of the tick under the cursor."""
-        record = self._record()
-        return (record["spans"] if record else []), False
+        The same contract as a live adapter's. Nothing runs here, so a snapshot
+        is made on request and kept until the cursor moves or more is asked for.
+        """
+        ports, blocks = tuple(ports), tuple(blocks)
+        latest = self._latest
+        if latest is None or latest.mark != self._moves or not latest.covers(ports, blocks):
+            record = self._record()
+            if latest is not None and latest.mark == self._moves:
+                # Same moment, more asked of it: keep what other clients already watch.
+                ports = tuple({*latest.frames, *ports})
+                blocks = tuple({*latest.values, *blocks})
+            empty = {"controls": {}, "state": {}}
+            summaries = {path: record["live"].get(path, empty) if record else empty for path in blocks}
+            self._serial += 1
+            latest = self._latest = Snapshot(
+                self._serial,
+                self._moves,
+                0.0,
+                self.position(),
+                record["spans"] if record else [],
+                False,
+                {key: self._frame(*key, record) for key in ports},
+                # Recorded values are already summaries, so they go straight to where summaries are kept.
+                dict.fromkeys(blocks),
+                summaries,
+            )
+        return None if since is not None and latest.serial <= since else latest
+
+    def _move(self, cursor):
+        self._cursor = max(0, min(len(self._ticks), int(cursor)))
+        self._moves += 1
 
     def advance(self, mode="tick", n=1):
         """Move the cursor forward; a recording has no call boundaries to stop at."""
         if mode != "tick":
             raise Unsupported("a recording can only step by whole ticks")
-        self._cursor = min(len(self._ticks), self._cursor + max(1, int(n)))
+        self._move(self._cursor + max(1, int(n)))
 
     def seek(self, index):
         """Move the cursor to the given recorded tick, counted from one; zero is before the first."""
-        self._cursor = max(0, min(len(self._ticks), int(index)))
+        self._move(index)
 
     def reset(self):
         """Return to the start of the recording."""
-        self._cursor = 0
+        self._move(0)
 
     def run(self, on, ticks_per_second=None):
         """Replay has no thread of its own; the client steps it."""

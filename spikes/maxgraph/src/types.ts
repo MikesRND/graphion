@@ -1,5 +1,9 @@
 // Shapes of the server payloads. The description follows Graphion's schema v2.
 
+import type { Signal } from './dsp';
+
+export type View = 'time' | 'array' | 'spectrum' | 'constellation';
+
 export type ValueRecord =
   | { kind: 'literal'; value: unknown; dtype?: string }
   | { kind: 'fraction'; numerator: number; denominator: number }
@@ -56,8 +60,8 @@ export interface Description {
 export interface Facts {
   source: { text: string; uri: string } | null;
   doc: string | null;
-  display: { port: string; view: ProbePayload['view'] } | null;
-  ports: Record<string, { nbytes: number; rate?: { text: string; hz: number } | null; producer?: string | null }>;
+  display: { port: string; view: View } | null;
+  ports: Record<string, { nbytes: number | null; rate?: { text: string; hz: number } | null; producer?: string | null }>;
 }
 
 export interface Position {
@@ -93,21 +97,24 @@ export interface TraceRecord {
   self_us?: number;
 }
 
-export interface ProbePayload {
-  view: 'time' | 'array' | 'spectrum' | 'constellation';
+export interface Stamp {
+  tick: number;
+  basis: 'observed' | 'assumed' | 'recorded';
+}
+
+/** What the server says about one probed channel. `key` names its samples; without it there are none. */
+export interface FrameMeta {
+  missing?: string;
+  unrun?: boolean;
   dtype?: string;
   shape?: number[];
-  stats?: { nonfinite: number; peak: number | null; rms: number | null };
-  stamp?: { tick: number; basis: 'observed' | 'assumed' | 'recorded' };
-  missing?: string;
-  re?: number[];
-  im?: number[];
-  y?: number[];
-  db?: number[];
-  f0?: number;
-  f1?: number;
-  has_rate?: boolean;
-  unrun?: boolean;
+  channel?: number;
+  /** Samples in the channel, and how many of them were sent. */
+  total?: number;
+  count?: number;
+  truncated?: boolean;
+  stamp?: Stamp | null;
+  key?: string;
 }
 
 export type LiveValue =
@@ -120,19 +127,26 @@ export interface LiveBlock {
   state: Record<string, LiveValue>;
 }
 
-export interface Observation {
+export interface WireHeader {
+  serial: number;
   position: Position;
-  probes: Record<string, ProbePayload>;
+  frames: Record<string, FrameMeta>;
+  arrays: Record<string, [number, number]>;
   live: LiveBlock | null;
   trace: TraceRecord[];
   trace_partial: boolean;
-  error?: string;
 }
 
-export interface ProbeSpec {
+export interface Observation extends WireHeader {
+  /** Decoded samples by probe id; the rate is the page's to add, from the document. */
+  signals: Map<string, Omit<Signal, 'rate'>>;
+  /** Size of the response body, for the page's own cost readout. */
+  bytes: number;
+}
+
+export interface Probe {
   id: string;
   path: string;
   port: string;
-  view: ProbePayload['view'];
-  max: number;
+  channel: number;
 }

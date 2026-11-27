@@ -18,22 +18,26 @@ import {
   Point,
   TooltipHandler,
 } from '@maxgraph/core';
+import { Client, type Watch } from './client';
+import { dtypeName, frameNote, frameText, isStale, signalFor } from './frames';
 import { type LaidNode, layoutModel, PORT, PORT_PITCH, PORT_TOP, portsOf } from './layout';
-import { drawLines, drawProbe } from './plots';
+import { drawLines, drawThumb } from './plots';
+import { createScope, type ScopeHandle } from './scope';
 import type {
   BlockRecord,
   Connection,
   Declaration,
   DimRecord,
+  FrameMeta,
   LiveBlock,
   LiveValue,
   ModelResponse,
   Observation,
   Position,
-  ProbePayload,
-  ProbeSpec,
+  Probe,
   TraceRecord,
   ValueRecord,
+  View,
 } from './types';
 
 type CellInfo =
@@ -49,9 +53,12 @@ interface BlockLabel {
 }
 
 interface Scope {
-  spec: ProbeSpec;
-  canvas: HTMLCanvasElement;
+  probe: Probe;
+  view: View;
+  handle: ScopeHandle;
+  host: HTMLElement;
   stats: HTMLElement;
+  meta?: FrameMeta;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -61,7 +68,7 @@ const esc = (text: unknown) =>
 let model: ModelResponse;
 let blocks = new Map<string, BlockRecord>();
 const collapsed = new Set<string>();
-const inBlock = new Map<string, { port: string; view: ProbePayload['view'] }>();
+const inBlock = new Map<string, { port: string; view: View }>();
 const scopes: Scope[] = [];
 const cellByPath = new Map<string, Cell>();
 const portCells = new Map<string, Cell>();
@@ -76,6 +83,8 @@ let capabilities = new Set<string>();
 // The adapter says what it can do; the page offers nothing it did not advertise.
 const can = (name: string) => capabilities.has(name);
 let running = false;
+// A recording has no thread of its own; while playing, this page steps it.
+let playing = false;
 let showSignalLabels = true;
 let scopeCounter = 0;
 
@@ -108,13 +117,6 @@ function dimText(dim: DimRecord): string {
     default:
       return dim.name;
   }
-}
-
-function dtypeName(code: string): string {
-  const match = /^[<>|=]?([a-zA-Z])(\d+)$/.exec(code);
-  if (!match) return code;
-  const names: Record<string, string> = { f: 'float', c: 'complex', i: 'int', u: 'uint', b: 'bool' };
-  return `${names[match[1]] ?? match[1]}${Number(match[2]) * 8}`;
 }
 
 function dtypeText(decl: Declaration): string {
@@ -165,22 +167,20 @@ function signalColor(path: string, port: string): string {
 
 // ------------------------------------------------------------------- server
 
-async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) });
-  const payload = await response.json();
+async function api<T>(path: string): Promise<T> {
+  const payload = await (await fetch(path)).json();
   if (payload.error) throw new Error(payload.error);
   return payload as T;
 }
 
-function activeProbes(): ProbeSpec[] {
-  const probes: ProbeSpec[] = scopes.map((s) => s.spec);
+// What this page wants in each snapshot: its scopes, the plots inside blocks, and the inspected block.
+function watchNow(): Watch {
+  const probes: Probe[] = scopes.map((s) => s.probe);
   for (const [path, hint] of inBlock) {
-    if (labels.get(path)?.canvas) probes.push({ id: `blk:${path}`, path, port: hint.port, view: hint.view, max: 256 });
+    if (labels.get(path)?.canvas) probes.push({ id: `blk:${path}`, path, port: hint.port, channel: 0 });
   }
-  return probes;
+  return { probes, inspect: selection && selection.kind !== 'edge' ? selection.path : null };
 }
-
-const observeRequest = () => ({ probes: activeProbes(), inspect: selection && selection.kind !== 'edge' ? selection.path : null });
 
 // -------------------------------------------------------------------- graph
 
@@ -280,11 +280,22 @@ function makeLabel(block: BlockRecord, composite: boolean): BlockLabel {
     `<div class="blk-type">${esc(block.definition.qualname)}${composite ? ` · ${block.children.length} inside` : ''}<span class="blk-time"></span></div>` +
     `<div class="blk-bar"></div>`;
   let canvas: HTMLCanvasElement | null = null;
-  if (inBlock.has(block.path)) {
+  const hint = inBlock.get(block.path);
+  if (hint) {
     canvas = document.createElement('canvas');
     canvas.className = 'blk-plot';
     canvas.style.height = '118px';
     root.appendChild(canvas);
+    // The picture in a block is a thumbnail; a click opens the interactive scope.
+    // A press that moved is a drag of the block, not a click. maxGraph works in pointer events and cancels the mouse ones.
+    let pressed: { x: number; y: number } | null = null;
+    canvas.addEventListener('pointerdown', (event) => (pressed = { x: event.clientX, y: event.clientY }));
+    canvas.addEventListener('click', (event) => {
+      const still = pressed && Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 4;
+      if (still && !scopes.some((s) => s.probe.path === block.path && s.probe.port === hint.port && s.view === hint.view)) {
+        addScope(block.path, hint.port, hint.view);
+      }
+    });
   }
   return { root, time: root.querySelector('.blk-time')!, bar: root.querySelector('.blk-bar')!, canvas };
 }
@@ -333,7 +344,7 @@ function portStyle(side: 'WEST' | 'EAST', probed: boolean): CellStyle {
 }
 
 function isProbed(path: string, port: string) {
-  return scopes.some((s) => s.spec.path === path && s.spec.port === port) || inBlock.get(path)?.port === port;
+  return scopes.some((s) => s.probe.path === path && s.probe.port === port) || inBlock.get(path)?.port === port;
 }
 
 function addBlock(node: LaidNode, parent: Cell) {
@@ -553,22 +564,6 @@ function renderTrace(total: number) {
     .join('');
 }
 
-// Data is stale when its producer has not run in the tick being looked at.
-function isStale(payload: ProbePayload): boolean {
-  if (!payload.stamp || payload.stamp.basis === 'recorded') return false;
-  return payload.stamp.tick < (position.state === 'paused' ? position.tick + 1 : position.tick);
-}
-
-function probeText(payload: ProbePayload): string {
-  if (payload.missing) return `not in this recording (${payload.missing})`;
-  if (payload.unrun) return 'not run yet';
-  const s = payload.stats!;
-  let text = `${payload.dtype} [${payload.shape!.join(' × ')}] · peak ${s.peak?.toPrecision(3) ?? '–'} · rms ${s.rms?.toPrecision(3) ?? '–'}`;
-  if (s.nonfinite) text += ` · ${s.nonfinite} non-finite`;
-  if (payload.stamp) text += ` · tick ${payload.stamp.tick} ${payload.stamp.basis}${isStale(payload) ? ' · stale' : ''}`;
-  return text;
-}
-
 const pausedMark = new CellHighlight(graph, '#e8590c', 3);
 
 function renderPosition() {
@@ -601,49 +596,76 @@ function renderPosition() {
 }
 
 function applyObservation(result: Observation) {
-  $('error').textContent = '';
   position = result.position;
+  if (can('execution.free_run')) showRunning(position.state === 'running');
   renderPosition();
   lastTrace = result.trace ?? [];
   applyTrace();
   for (const scope of scopes) {
-    const payload = result.probes[scope.spec.id];
-    if (!payload) continue;
-    drawProbe(scope.canvas, payload);
-    scope.stats.textContent = probeText(payload);
+    const meta = result.frames[scope.probe.id];
+    // A port asked for while the model runs arrives with a later snapshot.
+    if (!meta) continue;
+    const signal = signalFor(result, scope.probe, model);
+    scope.meta = meta;
+    scope.handle.update(signal, signal ? undefined : frameNote(meta));
+    scope.stats.textContent = frameText(meta, signal, position);
+    scope.host.style.opacity = isStale(meta, position) ? '0.45' : '1';
   }
-  for (const [path] of inBlock) {
-    const payload = result.probes[`blk:${path}`];
+  for (const [path, hint] of inBlock) {
+    const id = `blk:${path}`;
+    const meta = result.frames[id];
     const canvas = labels.get(path)?.canvas;
-    if (!payload || !canvas) continue;
-    drawProbe(canvas, payload);
-    canvas.style.opacity = isStale(payload) ? '0.35' : '1';
-    canvas.title = probeText(payload);
+    if (!meta || !canvas) continue;
+    const signal = signalFor(result, { id, path, port: hint.port, channel: 0 }, model);
+    drawThumb(canvas, signal, hint.view, frameNote(meta));
+    canvas.style.opacity = isStale(meta, position) ? '0.35' : '1';
+    canvas.title = `${frameText(meta, signal, position)} · click to open a scope`;
   }
   lastLive = result.live;
   renderLive();
 }
 
-async function refresh() {
-  try {
-    applyObservation(await api<Observation>('/api/observe', observeRequest()));
-  } catch (error) {
-    showError(error);
-  }
-}
-
 let uiCost = 0;
 let roundTrip = 0;
+let polling = true;
+let asking = false;
 
-// One request, applied to the page, with the cost of each half measured.
-async function exchange(path: string, body: object = {}) {
-  const started = performance.now();
-  const result = await api<Observation>(path, { ...body, ...observeRequest() });
+// Apply one answer, with the cost of each half measured.
+function accept(result: Observation | null, started: number) {
+  if (!result) return;
   const received = performance.now();
   applyObservation(result);
   uiCost = 0.8 * uiCost + 0.2 * (performance.now() - received);
   roundTrip = 0.8 * roundTrip + 0.2 * (received - started);
-  $('cost').textContent = `round trip ${roundTrip.toFixed(1)} ms · UI ${uiCost.toFixed(1)} ms`;
+  $('cost').textContent = `${(result.bytes / 1024).toFixed(1)} kB · round trip ${roundTrip.toFixed(1)} ms · UI ${uiCost.toFixed(1)} ms`;
+}
+
+// Ask for whatever is newer than what the page has. An unchanged model answers with nothing.
+async function poll() {
+  if (asking || !polling) return;
+  asking = true;
+  try {
+    const started = performance.now();
+    accept(await client.observe(watchNow()), started);
+  } catch (error) {
+    showError(error);
+  } finally {
+    asking = false;
+  }
+}
+
+// Redraw everything, as after the page rebuilt the elements it draws into.
+async function refresh() {
+  client.forget();
+  await poll();
+}
+
+// Change the shared execution state and show what came of it.
+async function act(action: string, body: object = {}) {
+  const started = performance.now();
+  const result = await client.act(action, watchNow(), body);
+  $('error').textContent = '';
+  accept(result, started);
 }
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -654,39 +676,50 @@ function showRunning(value: boolean) {
   $('run').classList.toggle('on', running);
 }
 
-// A live model free-runs on its own thread and the page only watches it. A
-// recording has no thread, so there the page steps it at the display rate.
+// The page watches at the display rate while the model runs and slowly otherwise,
+// which is how it learns of a step taken in another window.
 async function watch() {
-  const freeRun = can('execution.free_run');
-  while (running) {
-    try {
-      await exchange(freeRun ? '/api/observe' : '/api/advance', freeRun ? {} : { mode: 'tick' });
-    } catch (error) {
-      showError(error);
-      showRunning(false);
-      return;
-    }
-    if (position.state !== 'running' && (freeRun || position.state !== 'idle')) showRunning(false);
-    await pause(66);
+  for (;;) {
+    // A hidden tab stops asking, so its probes lapse and cost the model nothing.
+    if (!document.hidden) await poll();
+    await pause(position.state === 'running' ? 33 : 150);
   }
 }
 
+async function play() {
+  while (playing) {
+    try {
+      await act('advance', { mode: 'tick' });
+    } catch (error) {
+      showError(error);
+      break;
+    }
+    if (position.state !== 'idle') break;
+    await pause(66);
+  }
+  playing = false;
+  showRunning(false);
+}
+
+// A live model free-runs on its own thread and every window only watches it.
 async function setRunning(value: boolean) {
-  if (running === value) return;
-  showRunning(value);
   try {
-    if (can('execution.free_run')) await exchange('/api/run', { on: value });
-    if (value) void watch();
+    if (can('execution.free_run')) {
+      if ((position.state === 'running') !== value) await act('run', { on: value });
+    } else if (playing !== value) {
+      playing = value;
+      showRunning(value);
+      if (value) void play();
+    }
   } catch (error) {
     showError(error);
-    showRunning(false);
   }
 }
 
 async function step(mode: 'tick' | 'call') {
   await setRunning(false);
-  if (mode === 'call' && !position.trace) await exchange('/api/trace', { on: true });
-  await exchange('/api/advance', { mode });
+  if (mode === 'call' && !position.trace) await act('trace', { on: true });
+  await act('advance', { mode });
 }
 
 const tick = () => step('tick');
@@ -702,7 +735,7 @@ function rows(pairs: [string, string][]) {
 }
 
 function probeButtons(path: string, port: string) {
-  const views: ProbePayload['view'][] = ['time', 'spectrum', 'constellation'];
+  const views: View[] = ['time', 'spectrum', 'constellation'];
   const buttons = views.map((v) => `<button data-act="probe" data-path="${esc(path)}" data-port="${esc(port)}" data-view="${v}">${v}</button>`);
   const shown = inBlock.get(path)?.port === port;
   buttons.push(`<button data-act="inblock" data-path="${esc(path)}" data-port="${esc(port)}" class="${shown ? 'on' : ''}">in block</button>`);
@@ -748,7 +781,7 @@ function renderInspector() {
         const resolved = shapeText(d.shape);
         const lines = [
           `${esc(dtypeText(d))} ${esc(resolved)}${declared !== resolved ? ` <span class="muted">from ${esc(declared)}</span>` : ''}`,
-          `<span class="muted">${[facts?.rate ? hz(facts.rate.hz) : 'rate unknown', block.storage?.[d.name] ?? 'no storage', facts ? bytes(facts.nbytes) : ''].filter(Boolean).join(' · ')}</span>`,
+          `<span class="muted">${[facts?.rate ? hz(facts.rate.hz) : 'rate unknown', block.storage?.[d.name] ?? 'no storage', facts?.nbytes != null ? bytes(facts.nbytes) : ''].filter(Boolean).join(' · ')}</span>`,
           probeButtons(path, d.name),
         ];
         const focus = selection?.kind === 'port' && selection.port === d.name;
@@ -818,19 +851,31 @@ function renderLive() {
   target.innerHTML = `<h3>Run <span class="tag observed">observed</span></h3>${rows(pairs)}`;
 }
 
-function addScope(path: string, port: string, view: ProbePayload['view']) {
+function addScope(path: string, port: string, view: View) {
   const id = `s${scopeCounter++}`;
   const card = document.createElement('div');
   card.className = 'scope';
+  // The same scope as an address: it opens in a window or tab with its own subscription.
+  const url = `scope.html?${new URLSearchParams({ path, port, view })}`;
   card.innerHTML =
-    `<div class="head"><span><code>${esc(path)}.${esc(port)}</code> · ${view}</span><button aria-label="Remove scope">×</button></div>` +
-    `<canvas></canvas><div class="stats"></div>`;
+    `<div class="head"><span><code>${esc(path)}.${esc(port)}</code> · ${view}</span>` +
+    `<span class="row-actions"><a class="pop" href="${esc(url)}" target="_blank" title="Open in its own window. Ctrl-click for a tab.">pop out</a>` +
+    `<button aria-label="Remove scope">×</button></span></div>` +
+    `<div class="scope-host"></div><div class="stats"></div>`;
   $('scopes').prepend(card);
   $('scopes-empty').style.display = 'none';
-  const scope: Scope = { spec: { id, path, port, view, max: 512 }, canvas: card.querySelector('canvas')!, stats: card.querySelector('.stats')! };
+  const host = card.querySelector<HTMLElement>('.scope-host')!;
+  const scope: Scope = { probe: { id, path, port, channel: 0 }, view, handle: createScope(host, { view, compact: true }), host, stats: card.querySelector('.stats')! };
   scopes.push(scope);
+  card.querySelector('a')!.addEventListener('click', (event) => {
+    // A plain click opens a window; with a modifier the browser's own handling opens a tab.
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    window.open(url, `scope-${id}`, 'popup,width=780,height=520');
+  });
   card.querySelector('button')!.addEventListener('click', () => {
     scopes.splice(scopes.indexOf(scope), 1);
+    scope.handle.destroy();
     card.remove();
     markPort(path, port);
   });
@@ -856,7 +901,7 @@ async function showValue(path: string, name: string) {
   card.className = 'scope';
   card.innerHTML =
     `<div class="head"><span><code>${esc(path)}.${esc(name)}</code> · ${esc(value.dtype)} [${value.shape.join(' × ')}]</span><button aria-label="Remove">×</button></div>` +
-    `<canvas style="height:90px"></canvas>${value.response_db ? '<div class="stats">Magnitude response, dB</div><canvas style="height:90px"></canvas>' : ''}`;
+    `<canvas class="value" style="height:90px"></canvas>${value.response_db ? '<div class="stats">Magnitude response, dB</div><canvas class="value" style="height:90px"></canvas>' : ''}`;
   $('scopes').prepend(card);
   $('scopes-empty').style.display = 'none';
   card.querySelector('button')!.addEventListener('click', () => card.remove());
@@ -913,7 +958,7 @@ $('side').addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLElement>('[data-act]');
   if (!button || button.tagName !== 'BUTTON') return;
   const { act, path = '', port = '', view = 'time', name = '' } = button.dataset;
-  if (act === 'probe') addScope(path, port, view as ProbePayload['view']);
+  if (act === 'probe') addScope(path, port, view as View);
   else if (act === 'enter') void enter(path);
   else if (act === 'toggle') void toggleCollapsed(path);
   else if (act === 'value') showValue(path, name).catch(showError);
@@ -930,12 +975,7 @@ $('side').addEventListener('click', (event) => {
 $('side').addEventListener('change', (event) => {
   const input = event.target as HTMLInputElement;
   if (input.dataset.act !== 'control') return;
-  api('/api/control', { path: input.dataset.path, name: input.dataset.name, value: Number(input.value) })
-    .then(() => {
-      $('error').textContent = '';
-      return refresh();
-    })
-    .catch(showError);
+  act('control', { path: input.dataset.path, name: input.dataset.name, value: Number(input.value) }).catch(showError);
 });
 
 $('crumbs').addEventListener('click', (event) => {
@@ -951,21 +991,21 @@ $('step').addEventListener('click', () => step('tick').catch(showError));
 $('stepcall').addEventListener('click', () => step('call').catch(showError));
 $('reset').addEventListener('click', () => {
   setRunning(false)
-    .then(() => exchange('/api/reset'))
+    .then(() => act('reset'))
     .catch(showError);
 });
-$('tracebtn').addEventListener('click', () => exchange('/api/trace', { on: !position.trace }).catch(showError));
+$('tracebtn').addEventListener('click', () => act('trace', { on: !position.trace }).catch(showError));
 $('record').addEventListener('click', () => {
   const saved = position.recording;
-  exchange('/api/record', { on: !saved })
+  act('record', { on: !saved })
     .then(() => {
       if (saved) $('status').textContent = `saved ${saved.ticks} ticks to ${saved.path}`;
     })
     .catch(showError);
 });
 $<HTMLInputElement>('seek').addEventListener('input', (event) => {
-  showRunning(false);
-  exchange('/api/seek', { index: Number((event.target as HTMLInputElement).value) }).catch(showError);
+  playing = false;
+  act('seek', { index: Number((event.target as HTMLInputElement).value) }).catch(showError);
 });
 $('fit').addEventListener('click', fitView);
 $('expand').addEventListener('click', () => {
@@ -989,8 +1029,10 @@ $<HTMLInputElement>('search').addEventListener('keydown', (event) => {
   if (query && hit) void reveal(hit);
 });
 
+const client = new Client(() => void poll());
+
 async function start() {
-  model = await api<ModelResponse>('/api/document');
+  model = await client.document();
   capabilities = new Set(model.capabilities);
   position = model.position;
   blocks = new Map(model.description.blocks.map((b) => [b.path, b]));
@@ -1011,7 +1053,9 @@ async function start() {
   }
   await rebuild(true);
   // Exposed for the spike's own browser checks.
-  Object.assign(window, { spike: { graph, cellByPath, portCells, reveal, enter, toggleCollapsed, tick, step, select, state: () => ({ currentRoot, selection, uiCost, roundTrip, position }) } });
+  const setPolling = (on: boolean) => (polling = on);
+  Object.assign(window, { spike: { graph, cellByPath, portCells, labels, scopes, client, reveal, enter, toggleCollapsed, tick, step, select, setPolling, state: () => ({ currentRoot, selection, uiCost, roundTrip, position }) } });
+  void watch();
 }
 
 start().catch(showError);

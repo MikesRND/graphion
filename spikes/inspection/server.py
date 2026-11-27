@@ -4,6 +4,11 @@
     python -m spikes.inspection.server --replay spikes/inspection/recordings/<name>
 
 The transport only maps URLs to session calls. Standard library and NumPy only.
+
+Observations travel as one binary body (see wire.py); the document, values and
+errors are JSON. Connections are kept alive, because a client polls many times
+a second and a new connection each time would mean a new thread each time in
+the model's own process.
 """
 
 import argparse
@@ -12,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from spikes.inspection import wire
 from spikes.inspection.session import Session
 
 HERE = Path(__file__).resolve().parent
@@ -20,9 +26,13 @@ CONTENT_TYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/c
 
 
 class Handler(BaseHTTPRequestHandler):
-    """Static files for the page and a small JSON API over the session."""
+    """Static files for the page and a small API over the session."""
 
     session: Session
+    # HTTP/1.1 keeps the connection open between polls; every response below states its length.
+    protocol_version = "HTTP/1.1"
+    # Headers and body leave as separate small writes; without this the second waits on the first's ACK.
+    disable_nagle_algorithm = True
 
     def log_message(self, format, *args):
         """Keep the console quiet; polls arrive many times a second."""
@@ -35,11 +45,31 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _guarded(self, call):
+    def _observation(self, observation):
+        if observation is None:
+            # Nothing newer than the client's ``since``: no body, and nothing was copied or encoded for it.
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        parts = wire.parts(observation)
+        length = sum(len(part) for part in parts)
+        head = f"HTTP/1.1 200 OK\r\nContent-Type: {wire.CONTENT_TYPE}\r\nContent-Length: {length}\r\n\r\n"
+        # One system call for the whole response, frames taken straight from the snapshot.
+        # Every separate write releases the interpreter lock and then has to win it back from
+        # the model thread; measured, that hand-over costs the model more than the work itself.
+        buffers = [head.encode(), *parts]
+        sent = self.connection.sendmsg(buffers)
+        if sent < len(head) + length:
+            # The socket took only part of it; finish with what is left.
+            self.connection.sendall(b"".join(buffers)[sent:])
+
+    def _guarded(self, call, send=None):
         try:
-            self._json(call())
+            result = call()
         except Exception as error:  # A spike reports every failure to the page rather than dropping the request.
-            self._json({"error": f"{type(error).__name__}: {error}"}, 400)
+            return self._json({"error": f"{type(error).__name__}: {error}"}, 400)
+        return (send or self._json)(result)
 
     def do_GET(self):
         """Serve the page, its bundle and read-only queries."""
@@ -49,6 +79,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._guarded(self.session.document)
         if url.path == "/api/value":
             return self._guarded(lambda: self.session.value(query["path"], query["name"]))
+        if url.path == "/api/reference":
+            probe = {"path": query["path"], "port": query["port"], "channel": int(query.get("channel", 0))}
+            return self._guarded(lambda: self.session.reference(probe, query.get("view", "time")))
         relative = "index.html" if url.path == "/" else url.path.lstrip("/")
         target = (STATIC / relative).resolve()
         if not target.is_relative_to(STATIC) or not target.is_file() or target.suffix not in CONTENT_TYPES:
@@ -80,14 +113,14 @@ class Handler(BaseHTTPRequestHandler):
         action = actions.get(urlparse(self.path).path)
         if action is None:
             return self._json({"error": "not found"}, 404)
-        return self._guarded(lambda: action(request))
+        return self._guarded(lambda: action(request), self._observation)
 
 
 def main():
     """Parse arguments and serve until interrupted."""
     parser = argparse.ArgumentParser(description="Serve a Graphion model, or a recording of one, to the spike UI.")
     source = parser.add_mutually_exclusive_group()
-    source.add_argument("--model", choices=("ber", "ddc"), default="ddc")
+    source.add_argument("--model", choices=("ber", "ddc", "unbound"), default="ddc")
     source.add_argument("--replay", metavar="DIR", help="serve a recording; no model is built")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--trace", action="store_true", help="start with call tracing on")

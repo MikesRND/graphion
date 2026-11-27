@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scope</title>
+<link rel="stylesheet" href="dist/popout.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --line: #d9dee5; --text: #1c2430; --muted: #66758a; --accent: #3b5bdb; --observed: #0f8a6c;
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--panel); }
+  body { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  button { font: inherit; color: inherit; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+  button:hover { border-color: #9aa7b8; }
+  button.on { background: #e7ecff; border-color: var(--accent); }
+  header { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; font-weight: 600; }
+  .muted { color: var(--muted); }
+  #status { color: var(--observed); }
+  #error { color: #b42318; }
+  #host { min-height: 0; padding: 4px 8px 0; }
+  footer { padding: 4px 10px 6px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <code id="name"></code>
+  <span id="views"></span>
+  <span class="muted" id="model"></span>
+  <span id="status"></span>
+  <span id="error"></span>
+</header>
+<div id="host"></div>
+<footer id="stats">waiting for data</footer>
+<script type="module" src="dist/popout.js"></script>
+</body>
+</html>

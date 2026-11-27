@@ -1,6 +1,8 @@
-// Minimal canvas plots. Each call redraws the whole canvas from one payload.
+// Minimal canvas plots: the non-interactive thumbnails inside blocks, and parameter arrays.
+// Each call redraws the whole canvas. The interactive scopes are in scope.ts.
 
-import type { ProbePayload } from './types';
+import { minMaxDecimate, type Signal, spectrum } from './dsp';
+import type { View } from './types';
 
 const AXIS = '#c5ccd6';
 const SERIES = ['#3b5bdb', '#e8590c'];
@@ -19,11 +21,12 @@ function prepare(canvas: HTMLCanvasElement) {
   return { g, width, height };
 }
 
-function range(series: number[][]): [number, number] {
+function range(series: ArrayLike<number>[]): [number, number] {
   let lo = Infinity;
   let hi = -Infinity;
   for (const values of series) {
-    for (const v of values) {
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
       if (v < lo) lo = v;
       if (v > hi) hi = v;
     }
@@ -34,7 +37,7 @@ function range(series: number[][]): [number, number] {
   return [lo - pad, hi + pad];
 }
 
-export function drawLines(canvas: HTMLCanvasElement, series: number[][], caption = '') {
+export function drawLines(canvas: HTMLCanvasElement, series: ArrayLike<number>[], caption = '') {
   const { g, width, height } = prepare(canvas);
   const [lo, hi] = range(series);
   const pad = (hi - lo) * 0.06 / 1.12;
@@ -52,12 +55,12 @@ export function drawLines(canvas: HTMLCanvasElement, series: number[][], caption
     g.strokeStyle = SERIES[index % SERIES.length];
     g.lineWidth = 1.2;
     g.beginPath();
-    values.forEach((v, i) => {
+    for (let i = 0; i < values.length; i++) {
       const x = (i / (values.length - 1)) * width;
-      const y = height - ((v - lo) / (hi - lo)) * height;
+      const y = height - ((values[i] - lo) / (hi - lo)) * height;
       if (i) g.lineTo(x, y);
       else g.moveTo(x, y);
-    });
+    }
     g.stroke();
   });
   g.fillStyle = '#66758a';
@@ -67,7 +70,7 @@ export function drawLines(canvas: HTMLCanvasElement, series: number[][], caption
   if (caption) g.fillText(caption, width - g.measureText(caption).width - 3, height - 3);
 }
 
-export function drawConstellation(canvas: HTMLCanvasElement, re: number[], im: number[]) {
+export function drawConstellation(canvas: HTMLCanvasElement, re: ArrayLike<number>, im: ArrayLike<number>) {
   const { g, width, height } = prepare(canvas);
   let limit = 0;
   for (let i = 0; i < re.length; i++) limit = Math.max(limit, Math.abs(re[i]), Math.abs(im[i]));
@@ -87,28 +90,29 @@ export function drawConstellation(canvas: HTMLCanvasElement, re: number[], im: n
   for (let i = 0; i < re.length; i++) g.fillRect(cx + re[i] * scale - 1, cy - im[i] * scale - 1, 2, 2);
 }
 
-function hz(value: number): string {
-  const magnitude = Math.abs(value);
-  if (magnitude >= 1e6) return `${+(value / 1e6).toPrecision(3)} MHz`;
-  if (magnitude >= 1e3) return `${+(value / 1e3).toPrecision(3)} kHz`;
-  return `${+value.toPrecision(3)} Hz`;
+function message(canvas: HTMLCanvasElement, text: string) {
+  const { g, width, height } = prepare(canvas);
+  g.fillStyle = '#8a97a8';
+  g.font = '11px system-ui, sans-serif';
+  g.fillText(text, (width - g.measureText(text).width) / 2, height / 2);
 }
 
-export function drawProbe(canvas: HTMLCanvasElement, payload: ProbePayload) {
-  if (payload.unrun || payload.missing) {
-    const text = payload.missing ? 'not recorded' : 'not run yet';
-    const { g, width, height } = prepare(canvas);
-    g.fillStyle = '#8a97a8';
-    g.font = '11px system-ui, sans-serif';
-    g.fillText(text, (width - g.measureText(text).width) / 2, height / 2);
-  } else if (payload.view === 'constellation' && payload.re && payload.im) {
-    drawConstellation(canvas, payload.re, payload.im);
-  } else if (payload.view === 'spectrum' && payload.db) {
-    const span = payload.has_rate ? `${hz(payload.f0 ?? 0)} … ${hz(payload.f1 ?? 0)}` : 'rate unknown';
-    drawLines(canvas, [payload.db], `dB · ${span}`);
-  } else if (payload.re && payload.im) {
-    drawLines(canvas, [payload.re, payload.im], 're / im');
+// A thumbnail has a few hundred pixels; two points per column keep every spike of a long frame.
+const thin = (values: Float64Array, canvas: HTMLCanvasElement) => minMaxDecimate(values, canvas.clientWidth || 160).value;
+
+/** Draw a small, non-interactive picture of one signal, or say why there is none. */
+export function drawThumb(canvas: HTMLCanvasElement, signal: Signal | null, view: View, note = '') {
+  if (!signal) {
+    message(canvas, note);
+  } else if (view === 'constellation' && signal.imag) {
+    // The newest points; a thumbnail of thousands would be a solid blot.
+    const from = Math.max(0, signal.real.length - 512);
+    drawConstellation(canvas, signal.real.subarray(from), signal.imag.subarray(from));
+  } else if (view === 'spectrum') {
+    drawLines(canvas, [thin(spectrum(signal).db, canvas)], 'dB');
+  } else if (signal.imag) {
+    drawLines(canvas, [thin(signal.real, canvas), thin(signal.imag, canvas)], 're / im');
   } else {
-    drawLines(canvas, [payload.y ?? []]);
+    drawLines(canvas, [thin(signal.real, canvas)]);
   }
 }

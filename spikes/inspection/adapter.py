@@ -7,9 +7,14 @@ run path is unchanged and costs nothing extra while tracing is off.
 
 Adapter contract used by the session (the replay adapter implements the same):
 
-    capabilities, document(), position(), safe(), read(path, name),
-    live(path), stamp(path), spans(), advance(mode, n), reset(),
+    capabilities, document(), position(), snapshot(ports, blocks, since),
+    safe(), read(path, name), advance(mode, n), reset(),
     plus the optional run(), set_trace(), write_control(), seek().
+
+Clients are served from snapshots (see snapshots.py). While the model runs,
+the model thread makes one at a tick boundary, and only when a client has asked
+since the last one and the rate cap has passed; a model nobody watches copies
+nothing. While the model is stopped, the asking thread makes one under safe().
 """
 
 import inspect
@@ -24,8 +29,16 @@ from urllib.parse import quote
 import numpy as np
 
 from spikes.inspection import document, views
+from spikes.inspection.snapshots import Frame, Snapshot, take
 
 REPO = Path(__file__).resolve().parents[2]
+
+# At most this many snapshots a second while running, however many clients ask.
+PUBLISH_HZ = 30.0
+# A port or block stays watched this long after the last request that named it.
+LEASE_SECONDS = 3.0
+# A published snapshot older than this is not handed out; the asker waits for a safe point instead.
+FRESH_SECONDS = 0.5
 
 
 class Unsupported(Exception):
@@ -48,6 +61,13 @@ def build_model(name):
         from examples.ddc.ddc_tb import ADC_RATE, Testbench
 
         root = Testbench()
+        root.setup(Ctx(rate=ADC_RATE, n=4096, channels=1))
+    elif name == "unbound":
+        # A composite whose external input nobody binds: it describes and sets up, but cannot run.
+        from examples.blocks.ddc import DDC
+        from examples.ddc.ddc_tb import ADC_RATE
+
+        root = DDC(freq=1.0e6)
         root.setup(Ctx(rate=ADC_RATE, n=4096, channels=1))
     else:
         raise ValueError(f"unknown model {name!r}")
@@ -91,19 +111,35 @@ def _port_rate(block, port):
     return {"text": str(rate), "hz": float(rate)}
 
 
-def gather_facts(root):
+def _nbytes(declaration):
+    """Bytes of one buffer from its resolved shape and dtype; None when either is not resolved."""
+    dtype, shape = declaration["dtype"], declaration["shape"]
+    if dtype is None or dtype["kind"] != "resolved" or shape is None:
+        return None
+    count = 1
+    for dim in shape:
+        if dim["kind"] != "resolved":
+            return None
+        count *= dim["value"]
+    return int(count) * np.dtype(dtype["value"]).itemsize
+
+
+def gather_facts(root, description):
     """Collect the provider facts for every block of a set-up model."""
+    blocks = dict(walk(root))
     out = {}
-    for path, block in walk(root):
+    for record in description["blocks"]:
+        path, block = record["path"], blocks[record["path"]]
         cls = type(block)
         ports = {}
-        for name, record in cls.schema.items():
-            if record.axes is None:
+        for declaration in record["declarations"]:
+            if declaration["shape"] is None:
                 continue
-            entry = {"nbytes": int(np.asarray(getattr(block, name)).nbytes)}
-            if record.kind in ("In", "Out"):
-                entry["rate"] = _port_rate(block, name)
-            ports[name] = entry
+            # Sized from the description, not the live array: an unbound input has no array to ask.
+            entry = {"nbytes": _nbytes(declaration)}
+            if declaration["kind"] in ("In", "Out"):
+                entry["rate"] = _port_rate(block, declaration["name"])
+            ports[declaration["name"]] = entry
         # Own docstring only: an inherited Block docstring says nothing about this definition.
         doc = inspect.cleandoc(cls.__doc__) if cls.__dict__.get("__doc__") else None
         out[path] = {
@@ -138,7 +174,8 @@ class NumpyFrameAdapter:
         self.name = name
         self.blocks = dict(walk(root))
         self._paths = {id(block): path for path, block in self.blocks.items()}
-        self._document = document.compose(root.describe(), gather_facts(root), self.capabilities, name)
+        description = root.describe()
+        self._document = document.compose(description, gather_facts(root, description), self.capabilities, name)
 
         # One condition guards every field below. The model thread holds "busy"
         # while hooks run; readers wait for it to clear and take priority over the next tick.
@@ -167,6 +204,20 @@ class NumpyFrameAdapter:
         self._paused_ns = 0
         self._produced = {}
         self._trace_since = 0
+
+        # Snapshots. Leases are touched by request threads and read by whoever
+        # captures, so they have their own small lock; the condition is not needed for them.
+        self._watch_lock = threading.Lock()
+        self._watch_ports = {}
+        self._watch_blocks = {}
+        self._armed = False
+        self._publish_period = 1.0 / PUBLISH_HZ
+        self._publish_due = 0.0
+        self._latest = None
+        self._news = threading.Condition()
+        self._serial = 0
+        self._edits = 0
+        self.copies = 0
 
         monitoring = sys.monitoring
         self._tool = monitoring.PROFILER_ID
@@ -238,6 +289,20 @@ class NumpyFrameAdapter:
         if self.on_tick is not None:
             # Still "busy": this is a safe point on the model thread, before readers are let in.
             self.on_tick(self._ticks + 1)
+        # One attribute read per tick is all an unwatched model pays.
+        if self._armed:
+            self._publish()
+
+    def _publish(self):
+        """Make a snapshot at this tick boundary if the rate cap allows; runs on the model thread."""
+        now = time.monotonic()
+        if now < self._publish_due:
+            return
+        self._armed = False
+        self._publish_due = now + self._publish_period
+        tick = self._ticks + 1
+        position = {**self.position(), "tick": tick, "state": "running", "at": None}
+        self._capture(position, (tick, self._stops, self._edits, "running"), tick)
 
     def _clock(self):
         """Model time in nanoseconds, excluding time spent paused at a call."""
@@ -325,30 +390,118 @@ class NumpyFrameAdapter:
         """Return the live array or value of a named member; call inside safe()."""
         return getattr(self.blocks[path], name)
 
-    def live(self, path):
-        """Return current Control and State values of one block; call inside safe()."""
-        block = self.blocks.get(path)
+    def _values(self, path):
+        """Copy one block's Control and State values; summarizing is left to the reader's thread."""
         out = {"controls": {}, "state": {}}
+        block = self.blocks.get(path)
         if block is None:
             return out
+        kinds = {"Control": "controls", "State": "state"}
         for name, record in type(block).schema.items():
-            if record.kind == "Control":
-                out["controls"][name] = views.summarize(getattr(block, name))
-            elif record.kind == "State":
-                out["state"][name] = views.summarize(getattr(block, name))
+            if record.kind in kinds:
+                value = getattr(block, name)
+                out[kinds[record.kind]][name] = value.copy() if isinstance(value, np.ndarray) else value
         return out
 
-    def stamp(self, path):
+    def live(self, path):
+        """Return summarized Control and State values of one block; call inside safe()."""
+        return {kind: views.summarize_all(members) for kind, members in self._values(path).items()}
+
+    def stamp(self, path, completed=None):
         """Say which tick last produced a block's outputs, and how that is known.
 
         With tracing on the answer is observed per block. With tracing off it is
-        assumed from the tick count, which holds only if every block ran each tick.
+        assumed from the count of completed ticks, which holds only if every
+        block ran each tick. The model thread passes the count itself, because
+        at a tick boundary the tick just finished is not yet counted.
         """
         if path in self._produced:
             return {"tick": self._produced[path], "basis": "observed"}
         # Before a block has been seen running, fall back to the last tick nobody was watching.
-        assumed = self._trace_since if self._trace else self._ticks
+        assumed = self._trace_since if self._trace else (self._ticks if completed is None else completed)
         return {"tick": assumed, "basis": "assumed"} if assumed > 0 else None
+
+    def _frame(self, address, channel, completed):
+        from graphion import UnavailablePortError
+
+        path, name = document.split_address(address)
+        block = self.blocks.get(path)
+        if block is None:
+            return Frame(missing="no such block")
+        try:
+            array = getattr(block, name)
+        except UnavailablePortError:
+            return Frame(missing="no value is bound to this input")
+        except AttributeError:
+            return Frame(missing="no such port")
+        frame = take(array, channel, self.stamp(path, completed))
+        if frame.data is not None:
+            self.copies += 1
+        return frame
+
+    def _mark(self):
+        return (self._ticks, self._stops, self._edits, self._state)
+
+    def _capture(self, position, mark, completed=None):
+        """Copy everything under lease into a new snapshot and swap it in by reference.
+
+        Runs where the model cannot be mid-call: on the model thread at a tick
+        boundary, or on a request thread inside safe().
+        """
+        now = time.monotonic()
+        with self._watch_lock:
+            for table in (self._watch_ports, self._watch_blocks):
+                for key in [key for key, expiry in table.items() if expiry < now]:
+                    del table[key]
+            ports, blocks = tuple(self._watch_ports), tuple(self._watch_blocks)
+        frames = {key: self._frame(*key, completed) for key in ports}
+        values = {path: self._values(path) for path in blocks}
+        spans, partial = self.spans()
+        self._serial += 1
+        self._latest = Snapshot(self._serial, mark, now, position, spans, partial, frames, values)
+        with self._news:
+            self._news.notify_all()
+        return self._latest
+
+    def snapshot(self, ports=(), blocks=(), since=None):
+        """Return the current snapshot, or None when ``since`` already names it.
+
+        ``ports`` are ``(address, channel)`` pairs and ``blocks`` are paths; each
+        request renews their lease, and the watched set is the union of every
+        client's. While the model runs this takes no lock the model thread
+        uses: it arms the next publish and hands out the latest one, which may
+        not yet hold a port that was only just asked for.
+        """
+        ports, blocks = tuple(ports), tuple(blocks)
+        now = time.monotonic()
+        with self._watch_lock:
+            for key in ports:
+                self._watch_ports[key] = now + LEASE_SECONDS
+            for path in blocks:
+                self._watch_blocks[path] = now + LEASE_SECONDS
+        latest = self._latest
+        published = latest is not None and latest.position["state"] == "running"
+        if self._state == "running" and published and now - latest.made < FRESH_SECONDS:
+            self._armed = True
+            if since is not None and latest.serial <= since:
+                # Nothing newer yet. Hold the request until the publish it just armed, at most one
+                # period, so a client asking in a loop sleeps here instead of spinning.
+                with self._news:
+                    self._news.wait_for(lambda: self._latest.serial > since, self._publish_period)
+                latest = self._latest
+            else:
+                # The model thread shares the interpreter with this one; step aside for it
+                # before answering, or a caller in a tight loop would keep it from running.
+                time.sleep(0)
+        else:
+            # Stopped, paused, just started or running slowly: no publish is due soon, so read at a safe point.
+            with self.safe():
+                latest = self._latest
+                if latest is None or latest.mark != self._mark() or not latest.covers(ports, blocks):
+                    latest = self._capture(self.position(), self._mark())
+                # A model running faster than the freshness window publishes from here on.
+                self._armed = self._state == "running"
+        return None if since is not None and latest.serial <= since else latest
 
     def spans(self):
         """Return call spans: the tick in progress when paused, else the last complete tick."""
@@ -386,6 +539,9 @@ class NumpyFrameAdapter:
             self._step_calls = False
             if self._state == "paused":
                 self._resume = True
+            elif self._free:
+                # Say so now; the loop needs a turn before it would, and a client asking in between must not see idle.
+                self._state = "running"
             self._cv.notify_all()
             if not on:
                 self._cv.wait_for(lambda: not self._busy and self._state != "paused")
@@ -406,6 +562,7 @@ class NumpyFrameAdapter:
                 self._wait_for_stop(before)
             self._cv.wait_for(lambda: not self._busy)
             self.root.reset()
+            self._edits += 1
             self._ticks = 0
             self._trace_since = 0
             self._produced.clear()
@@ -421,6 +578,7 @@ class NumpyFrameAdapter:
             for code in self._entries:
                 monitoring.set_local_events(self._tool, code, events)
             self._trace = bool(on)
+            self._edits += 1
             self._trace_since = self._ticks
             if not on:
                 # Without tracing nothing keeps these current, so drop them rather than show stale facts.
@@ -436,6 +594,7 @@ class NumpyFrameAdapter:
         with self.safe():
             current = getattr(block, name)
             setattr(block, name, type(current)(value) if isinstance(current, (int, float)) else value)
+            self._edits += 1
 
     def seek(self, tick):
         """Live models cannot move in time."""

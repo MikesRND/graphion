@@ -10,7 +10,7 @@ SCHEMA = "graphion.inspection.document/0"
 ORIGINS = {
     "source": "tooling: Python source lookup on the definition",
     "doc": "tooling: the definition's own docstring",
-    "nbytes": "tooling: size of the live array",
+    "nbytes": "derived: resolved shape and dtype in the description",
     "rate": "library: graphion.dsp stream_ports convention",
     "display": "tooling: hint registry keyed by definition",
     "producer": "derived: connection records followed to the direct producer",

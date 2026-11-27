@@ -1,5 +1,8 @@
 """Display-sized payloads computed from raw arrays; nothing here knows about blocks."""
 
+import enum
+import math
+
 import numpy as np
 
 
@@ -20,14 +23,27 @@ def stats(array):
     return {"nonfinite": int(magnitude.size - np.count_nonzero(finite)), "peak": peak, "rms": rms}
 
 
-def pool_max(values, limit):
-    """Decimate for display by keeping the maximum of each bucket."""
-    if values.size <= limit:
-        return values
-    size = int(np.ceil(values.size / limit))
-    padded = np.full(size * int(np.ceil(values.size / size)), -np.inf)
-    padded[: values.size] = values
-    return padded.reshape(-1, size).max(axis=1)
+def spectrum(data, rate=None):
+    """Return (freq, db) for one channel: the reference the page's own transform is checked against.
+
+    Hann window (NumPy's symmetric ``hanning``), power normalised by the
+    window's energy, floor at -200 dB. Complex input gives a shifted two-sided
+    spectrum, real input the one-sided one. Without a rate, frequency is in
+    cycles per sample.
+    """
+    data = np.asarray(data).reshape(-1)
+    if data.dtype.kind not in "fc":
+        data = data.astype(np.float64)
+    window = np.hanning(data.size)
+    step = 1.0 / (rate or 1.0)
+    if np.iscomplexobj(data):
+        bins = np.fft.fftshift(np.fft.fft(data * window))
+        freq = np.fft.fftshift(np.fft.fftfreq(data.size, step))
+    else:
+        bins = np.fft.rfft(data * window)
+        freq = np.fft.rfftfreq(data.size, step)
+    power = np.abs(bins) ** 2 / np.sum(window**2)
+    return freq, 10 * np.log10(np.maximum(power, 1e-20))
 
 
 def describe_frame(frame):
@@ -35,36 +51,28 @@ def describe_frame(frame):
     return {"dtype": frame.dtype.name, "shape": list(frame.shape)}
 
 
-def reduce(frame, view, limit, rate):
-    """Reduce one frame to the requested view, falling back to a time view."""
-    frame = np.asarray(frame)
-    data = frame[0] if frame.ndim == 2 else frame.reshape(-1)
-    out = {"view": view, **describe_frame(frame), "stats": stats(frame)}
-    is_complex = np.iscomplexobj(data)
-    if view == "constellation" and is_complex:
-        tail = data[-limit:]
-        tail = tail[np.isfinite(tail)]
-        out.update(re=numbers(tail.real), im=numbers(tail.imag))
-    elif view == "spectrum" and data.size >= 8 and data.dtype.kind in "fc":
-        window = np.hanning(data.size)
-        spectrum = np.fft.fft(data * window) if is_complex else np.fft.rfft(data * window)
-        if is_complex:
-            spectrum = np.fft.fftshift(spectrum)
-        power = np.abs(spectrum) ** 2 / np.sum(window**2)
-        db = 10 * np.log10(np.maximum(pool_max(power, limit), 1e-20))
-        half = (rate or 1.0) / 2
-        out.update(db=numbers(db, 2), f0=-half if is_complex else 0.0, f1=half, has_rate=rate is not None)
-    elif view == "array" and not is_complex:
-        # A whole-frame view for outputs that are already a display, such as a PSD.
-        out.update(y=numbers(pool_max(data.astype(np.float64), limit)))
+def reference(data, view, rate=None):
+    """Reduce one channel at full resolution in NumPy.
+
+    The page does its own reductions; this is what its numbers are checked
+    against, and what a client too thin to transform anything could ask for.
+    """
+    data = np.asarray(data).reshape(-1)
+    out = {"view": view, "count": int(data.size), "stats": stats(data)}
+    if view == "spectrum":
+        freq, db = spectrum(data, rate)
+        out.update(freq=freq.tolist(), db=finite_list(db))
+    elif np.iscomplexobj(data):
+        out.update(re=finite_list(data.real), im=finite_list(data.imag))
     else:
-        head = data[:limit]
-        out["view"] = "time"
-        if is_complex:
-            out.update(re=numbers(head.real), im=numbers(head.imag))
-        else:
-            out.update(y=numbers(head))
+        out["y"] = finite_list(data)
     return out
+
+
+def finite_list(array):
+    """Return a list of floats with None where JSON has no spelling for the value."""
+    values = np.asarray(array, dtype=np.float64)
+    return [value if math.isfinite(value) else None for value in values.tolist()]
 
 
 def summarize(value):
@@ -73,11 +81,24 @@ def summarize(value):
         head = value.reshape(-1)[:8]
         text = ", ".join(f"{v:.4g}" for v in (head if not np.iscomplexobj(head) else np.abs(head)))
         return {"kind": "array", "dtype": value.dtype.name, "shape": list(value.shape), "head": text, **stats(value)}
+    if isinstance(value, enum.Enum):
+        return {"kind": "scalar", "value": f"{type(value).__name__}.{value.name}"}
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, complex):
+        # JSON has no complex number; the text form keeps both parts readable.
+        return {"kind": "scalar", "value": f"{value.real:.6g}{value.imag:+.6g}j"}
+    if isinstance(value, float) and not math.isfinite(value):
+        # JSON has no NaN or infinity either, and a strict encoder raises on them.
+        return {"kind": "scalar", "value": str(value)}
     if isinstance(value, (bool, int, float, str)) or value is None:
         return {"kind": "scalar", "value": value}
-    if isinstance(value, (np.integer, np.floating, np.bool_)):
-        return {"kind": "scalar", "value": value.item()}
     return {"kind": "opaque", "type": type(value).__name__}
+
+
+def summarize_all(members):
+    """Summarize a mapping of names to Control or State values."""
+    return {name: summarize(value) for name, value in members.items()}
 
 
 def value_payload(value):
