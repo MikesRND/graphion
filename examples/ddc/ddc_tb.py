@@ -12,6 +12,7 @@ from graphion import Array, Axis, Block, C, Ctx, In, N, Out, Param, SetupError, 
 
 ADC_RATE = Fraction(1_024_000)
 OFFSETS_HZ = np.array([5_000, -8_000, 12_000], dtype=np.float64)
+TONE_AMPLITUDES = np.array([1.0, 1.0, 1.0, 10.0])  # The fourth tone is the interferer.
 
 
 class Stimulus(Block):
@@ -20,11 +21,21 @@ class Stimulus(Block):
     seed: int = Param(default=0)
     y: Array = Out(C, N)
     sample: int = State(default=0)
+    # One phase per tone, wrapped to [0, 2*pi) every frame. Feeding absolute
+    # time to cos() makes its argument grow without bound, which costs both
+    # speed (large-argument range reduction) and phase accuracy on long runs.
+    phase: Array = State(len(TONE_AMPLITUDES), default=0.0, dtype=np.float64)
 
     def setup(self, ctx: Ctx):
         if self.ctx.dtype.kind != "f" or not np.isfinite(self.noise) or self.noise < 0:
             raise SetupError("Stimulus needs real floating samples and nonnegative finite noise RMS")
-        self._k = np.arange(self.ctx.n)
+        if len(self.freqs) != len(OFFSETS_HZ):
+            raise SetupError("Stimulus needs one frequency per DDC channel")
+        # Three in-band tones plus a strong interferer 45 kHz above channel 1.
+        tones = np.append(np.asarray(self.freqs) + OFFSETS_HZ, self.freqs[1] + 45_000)
+        w = 2 * np.pi * tones / float(self.ctx.rate)
+        self._ramp = w[:, None] * np.arange(self.ctx.n)
+        self._advance = w * self.ctx.n
         self._rng = np.random.default_rng(self.seed)
         self._initial_rng_state = self._rng.bit_generator.state
 
@@ -32,12 +43,10 @@ class Stimulus(Block):
         self._rng.bit_generator.state = self._initial_rng_state
 
     def process(self):
-        t = (self.sample + self._k) / float(self.ctx.rate)
-        frequencies = np.asarray(self.freqs) + OFFSETS_HZ
-        self.y[...] = np.cos(2 * np.pi * frequencies[:, None] * t).sum(axis=0)
-        self.y[...] += 10 * np.cos(2 * np.pi * (self.freqs[1] + 45_000) * t)
+        self.y[...] = TONE_AMPLITUDES @ np.cos(self.phase[:, None] + self._ramp)
         if self.noise:
             self.y[...] += self.noise * self._rng.standard_normal(self.y.shape)
+        self.phase[...] = (self.phase + self._advance) % (2 * np.pi)
         self.sample += self.ctx.n
 
 
