@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Graphion canvas spike</title>
+<link rel="stylesheet" href="dist/main.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --line: #d9dee5; --text: #1c2430; --muted: #66758a;
+    --accent: #3b5bdb; --declared: #3b5bdb; --observed: #0f8a6c; --warn: #b45309;
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+  }
+  * { box-sizing: border-box; }
+  /* maxGraph sizes HTML labels assuming content-box; a global border-box reset shifts them by half their height. */
+  #canvas, #canvas * { box-sizing: content-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); }
+  body { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+  button, input, select { font: inherit; color: inherit; }
+  button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+  button:hover { border-color: #9aa7b8; }
+  button.on { background: #e7ecff; border-color: var(--accent); }
+  header { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header .title { font-weight: 600; }
+  header .muted, .muted { color: var(--muted); }
+  header .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  #crumbs button { border: 0; background: none; padding: 2px 4px; color: var(--accent); }
+  #crumbs span { color: var(--muted); }
+  #search { width: 130px; border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+  #canvas { position: relative; overflow: hidden; background: #fbfcfd; cursor: grab; outline: none; }
+  #side { border-left: 1px solid var(--line); background: var(--panel); overflow: auto; min-height: 0; }
+  #side section { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  h2 { font-size: 14px; margin: 0 0 2px; }
+  h3 { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; margin: 12px 0 4px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  h3 .tag { font-size: 10px; text-transform: none; letter-spacing: 0; border-radius: 4px; padding: 0 5px; color: #fff; }
+  .tag.declared { background: var(--declared); } .tag.observed { background: var(--observed); } .tag.unknown { background: var(--warn); }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  td { padding: 2px 4px 2px 0; vertical-align: top; overflow-wrap: anywhere; }
+  td.k { width: 36%; color: var(--muted); }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+  code, .mono { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+  .row-actions button { padding: 0 6px; font-size: 11px; margin: 1px 2px 1px 0; }
+  .scope { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-top: 8px; }
+  .scope .head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .scope canvas.value { width: 100%; height: 140px; display: block; }
+  .scope-host { height: 250px; }
+  .scope .pop { font-size: 11px; margin-right: 6px; }
+  .blk-plot { cursor: zoom-in; }
+  .scope .stats { font-size: 11px; color: var(--muted); margin-top: 3px; }
+  input.ctl { width: 110px; border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+  footer { background: var(--panel); border-top: 1px solid var(--line); padding: 6px 12px 8px; }
+  #trace { position: relative; height: 62px; margin-top: 4px; }
+  #trace div { position: absolute; height: 13px; border-radius: 2px; background: #cfe0ff; border: 1px solid #fff; overflow: hidden; font-size: 10px; line-height: 12px; padding: 0 3px; white-space: nowrap; cursor: pointer; }
+  #trace div.sel { background: #7b9cff; color: #fff; }
+  #trace div.open { background: #ffd8a8; }
+  #status { color: var(--observed); }
+  [hidden] { display: none !important; }
+  #error { color: #b42318; }
+  .blk { position: relative; width: 100%; height: 100%; text-align: center; color: var(--text); font: 12px/1.25 system-ui, sans-serif; overflow: hidden; }
+  .blk-name { font-weight: 600; padding-top: 6px; }
+  .blk-type { font-size: 10.5px; color: var(--muted); }
+  .blk-time { color: var(--observed); margin-left: 4px; }
+  .blk-plot { position: absolute; left: 8px; bottom: 8px; width: calc(100% - 18px); background: #fff; border: 1px solid #e3e8ef; border-radius: 4px; }
+  .blk-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--observed); width: 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="title" id="title">Graphion</span>
+  <span class="muted" id="subtitle"></span>
+  <span class="sep"></span>
+  <button id="run" title="Run or pause">Run</button>
+  <button id="step" title="Advance one root iteration">Step</button>
+  <button id="stepcall" title="Run to the next block call; switches call tracing on">Step call</button>
+  <button id="reset" title="Reset the model">Reset</button>
+  <button id="tracebtn" title="Observe every block call. Off costs the model nothing.">Call tracing</button>
+  <button id="record" title="Save every tick's outputs for replay">Record</button>
+  <input id="seek" type="range" min="0" max="0" step="1" style="width:170px" aria-label="Recorded tick" hidden>
+  <span class="mono" id="ticks">tick 0</span>
+  <span id="status"></span>
+  <span class="muted" id="cost"></span>
+  <span class="sep"></span>
+  <span id="crumbs"></span>
+  <span class="sep"></span>
+  <button id="fit">Fit</button>
+  <button id="expand">Expand all</button>
+  <button id="collapse">Collapse</button>
+  <button id="labels" class="on">Signal labels</button>
+  <input id="search" placeholder="Find block…" aria-label="Find block">
+  <span id="error"></span>
+</header>
+<main>
+  <div id="canvas" tabindex="0"></div>
+  <aside id="side">
+    <section id="inspector"><span class="muted">Select a block, port or connection.</span></section>
+    <section><h2>Scopes</h2><span class="muted" id="scopes-empty">Probe a port from the inspector.</span><div id="scopes"></div></section>
+  </aside>
+</main>
+<footer>
+  <span class="muted">Observed calls, last tick</span> <span class="mono" id="trace-total"></span>
+  <div id="trace"></div>
+</footer>
+<script type="module" src="dist/main.js"></script>
+</body>
+</html>

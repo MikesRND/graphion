@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scope demo</title>
+<!-- An empty icon, so the browser never asks the server for /favicon.ico. -->
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="dist/scope-demo.css">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --line: #d9dee5; --text: #1c2430; --muted: #66758a; --accent: #3b5bdb;
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); }
+  body { display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  button, select { font: inherit; color: inherit; }
+  button { border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 3px 9px; cursor: pointer; }
+  button:hover { border-color: #9aa7b8; }
+  button.on { background: #e7ecff; border-color: var(--accent); }
+  header { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header .title { font-weight: 600; }
+  .muted { color: var(--muted); }
+  main { display: grid; grid-template-columns: 380px minmax(0, 1fr); min-height: 0; }
+  #side { border-right: 1px solid var(--line); background: var(--panel); overflow: auto; min-height: 0; padding: 4px 12px 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-top: 8px; background: var(--panel); }
+  .card .head { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 4px; font-weight: 600; font-size: 12px; }
+  .card .head button { padding: 0 6px; font-size: 11px; font-weight: 400; }
+  #pop { padding: 12px; display: flex; flex-direction: column; min-height: 0; }
+  #pop .card { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: 0; }
+  #pop .host { flex: 1; min-height: 0; }
+</style>
+</head>
+<body>
+<header>
+  <span class="title">Scope demo</span>
+  <span class="muted">synthetic signals at 30 Hz, no server</span>
+  <button id="run" class="on">Pause</button>
+  <span class="muted" id="cost"></span>
+</header>
+<main>
+  <aside id="side"></aside>
+  <section id="pop">
+    <div class="card">
+      <div class="head"><span>chirp · pop-out size (not compact)</span>
+        <select id="popview" aria-label="View">
+          <option>time</option><option>array</option><option>spectrum</option><option>constellation</option>
+        </select>
+      </div>
+      <div class="host" id="tall"></div>
+    </div>
+  </section>
+</main>
+<script type="module" src="dist/scope-demo.js"></script>
+</body>
+</html>
